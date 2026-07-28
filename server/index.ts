@@ -581,6 +581,10 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+app.get("/", (_req, res) => {
+  res.json({ status: "ok", service: "SwapX API" });
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`SwapX API running on port ${PORT}`);
   console.log(`Allowed origins: ${allowedOrigins.join(", ")}`);
