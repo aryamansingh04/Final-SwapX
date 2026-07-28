@@ -18,18 +18,34 @@ const defaultOrigins = [
   "https://final-swap-x.vercel.app",
 ];
 
-const allowedOrigins = [
-  ...defaultOrigins,
-  ...(process.env.CLIENT_URL ? process.env.CLIENT_URL.split(",").map((o) => o.trim()) : []),
-];
+const extraOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(",").map((o) => o.trim()).filter(Boolean)
+  : [];
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  if (defaultOrigins.includes(origin) || extraOrigins.includes(origin)) return true;
+
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (protocol !== "http:" && protocol !== "https:") return false;
+    if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+    // Allow all Vercel production + preview deployments
+    if (hostname.endsWith(".vercel.app")) return true;
+  } catch {
+    return false;
+  }
+
+  return false;
+}
 
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
-        callback(new Error("Not allowed by CORS"));
+        callback(null, false);
       }
     },
     credentials: true,
@@ -587,5 +603,5 @@ app.get("/", (_req, res) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`SwapX API running on port ${PORT}`);
-  console.log(`Allowed origins: ${allowedOrigins.join(", ")}`);
+  console.log(`CORS: localhost + *.vercel.app${extraOrigins.length ? ` + ${extraOrigins.join(", ")}` : ""}`);
 });
