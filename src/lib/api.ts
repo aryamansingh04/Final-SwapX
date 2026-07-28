@@ -21,6 +21,12 @@ export class ApiError extends Error {
   }
 }
 
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "";
+
+function resolveApiPath(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
@@ -35,7 +41,7 @@ export async function apiFetch<T>(
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(path, {
+  const response = await fetch(resolveApiPath(path), {
     ...options,
     headers,
   });
@@ -94,7 +100,7 @@ export async function getMeApi(): Promise<{ user: AuthUser }> {
 
 export async function checkApiHealth(): Promise<boolean> {
   try {
-    const res = await fetch("/api/health");
+    const res = await fetch(resolveApiPath("/api/health"));
     return res.ok;
   } catch {
     return false;

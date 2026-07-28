@@ -12,7 +12,29 @@ const PORT = Number(process.env.PORT) || 3001;
 initDatabase();
 seedDatabase();
 
-app.use(cors({ origin: true, credentials: true }));
+const defaultOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "https://final-swap-x.vercel.app",
+];
+
+const allowedOrigins = [
+  ...defaultOrigins,
+  ...(process.env.CLIENT_URL ? process.env.CLIENT_URL.split(",").map((o) => o.trim()) : []),
+];
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 function getUserRow(userId: string) {
@@ -559,7 +581,7 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.listen(PORT, () => {
-  console.log(`SwapX API running on http://localhost:${PORT}`);
-  console.log(`SQLite database: data/swapx.db`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`SwapX API running on port ${PORT}`);
+  console.log(`Allowed origins: ${allowedOrigins.join(", ")}`);
 });

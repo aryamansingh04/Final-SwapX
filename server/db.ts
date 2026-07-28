@@ -4,8 +4,8 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(__dirname, "..", "data");
-const dbPath = path.join(dataDir, "swapx.db");
+const dataDir = process.env.DATABASE_DIR || path.join(__dirname, "..", "data");
+const dbPath = process.env.DATABASE_PATH || path.join(dataDir, "swapx.db");
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
