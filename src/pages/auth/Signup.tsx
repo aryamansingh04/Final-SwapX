@@ -5,14 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/useAuthStore";
-import { useProfileStore } from "@/stores/useProfileStore";
-import { generateUserIdFromEmail, isValidEmail } from "@/lib/auth";
+import { isValidEmail } from "@/lib/auth";
+import { signupApi, setToken } from "@/lib/api";
 import { toast } from "sonner";
 
 const Signup = () => {
   const navigate = useNavigate();
   const { setUser } = useAuthStore();
-  const { getProfile, setProfile } = useProfileStore();
   const [isLoading, setIsLoading] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -21,58 +20,43 @@ const Signup = () => {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!isValidEmail(email)) {
       toast.error("Please enter a valid email address");
       return;
     }
-    
+
     if (password !== confirmPassword) {
       toast.error("Passwords do not match");
       return;
     }
-    
+
     if (password.length < 6) {
       toast.error("Password must be at least 6 characters");
       return;
     }
-    
-    
-    const userId = generateUserIdFromEmail(email);
-    
-    
-    const existingProfile = getProfile(userId);
-    if (existingProfile) {
-      toast.error("An account with this email already exists. Please login instead.");
-      return;
-    }
-    
+
     setIsLoading(true);
-    
-    
-    setTimeout(() => {
-      
+
+    try {
       const normalizedEmail = email.toLowerCase().trim();
-      setProfile({
-        id: userId,
-        email: normalizedEmail,
-        name: name.trim(),
-        skills: [],
-        skillsToLearn: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      
+      const { token, user } = await signupApi(normalizedEmail, password, name.trim());
+
+      setToken(token);
       setUser({
-        id: userId,
-        email: normalizedEmail,
-        name: name.trim(),
+        id: user.id,
+        email: user.email,
+        name: user.name,
       });
-      
-      setIsLoading(false);
-      toast.success("Account created successfully! Please complete your profile.");
+      window.dispatchEvent(new Event("authChanged"));
+
+      toast.success("Account created! Please complete your profile.");
       navigate("/profile/setup");
-    }, 1000);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create account");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -99,7 +83,6 @@ const Signup = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
-                  aria-required="true"
                   autoComplete="name"
                 />
               </div>
@@ -112,7 +95,6 @@ const Signup = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  aria-required="true"
                   autoComplete="email"
                 />
               </div>
@@ -125,7 +107,6 @@ const Signup = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  aria-required="true"
                   autoComplete="new-password"
                 />
               </div>
@@ -138,7 +119,6 @@ const Signup = () => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  aria-required="true"
                   autoComplete="new-password"
                 />
               </div>
@@ -160,4 +140,3 @@ const Signup = () => {
 };
 
 export default Signup;
-

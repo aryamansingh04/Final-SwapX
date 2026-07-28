@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
+import { clearToken } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LogOut, LogIn } from "lucide-react";
@@ -13,14 +13,11 @@ const SimpleHeader = () => {
   const { logout } = useAuthStore();
 
   const handleSignOut = async () => {
-    try {
-      await supabase.auth.signOut();
-      logout();
-      navigate("/auth/login");
-    } catch (error) {
-      console.error("Error signing out:", error);
-      toast.error("Failed to sign out. Please try again.");
-    }
+    clearToken();
+    logout();
+    window.dispatchEvent(new Event("authChanged"));
+    navigate("/auth/login");
+    toast.success("Signed out");
   };
 
   if (isLoading) {

@@ -11,7 +11,7 @@ import { useProfileStore } from "@/stores/useProfileStore";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getMyProfile, getProfileById } from "@/lib/profile";
 import { getUserProofs, ProofWithSkill, saveProof } from "@/lib/proofs";
-import { uploadProof } from "@/lib/storage";
+import { uploadFile } from "@/lib/storage";
 import { mockUsers } from "@/data/mockUsers";
 import { useEffect, useState, useRef } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -22,7 +22,7 @@ const Profile = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuthStore();
-  const { user: supabaseUser } = useAuthUser();
+  const { user: apiUser } = useAuthUser();
   const { getProfile } = useProfileStore();
   const [supabaseProfile, setSupabaseProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -37,14 +37,14 @@ const Profile = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   
   
-  const currentUserId = supabaseUser?.id || user?.id;
+  const currentUserId = apiUser?.id || user?.id;
   const isOwnProfile = !id || id === currentUserId || id === user?.id;
   const profileId = id || currentUserId;
   
   
   useEffect(() => {
     const loadProfileAndProofs = async () => {
-      if (isOwnProfile && supabaseUser) {
+      if (isOwnProfile && apiUser) {
         try {
           setLoading(true);
           const profile = await getMyProfile();
@@ -54,14 +54,14 @@ const Profile = () => {
             setSupabaseProfile(null);
           }
 
-          if (supabaseUser.id) {
+          if (apiUser.id) {
             try {
               const userProofs = await getMyProofs();
               setProofs(userProofs ?? []);
             } catch (proofError) {
               console.error("Error loading proofs from Supabase:", proofError);
               try {
-                const fallbackProofs = await getUserProofs(supabaseUser.id);
+                const fallbackProofs = await getUserProofs(apiUser.id);
                 setProofs(fallbackProofs ?? []);
               } catch {
                 setProofs([]);
@@ -76,7 +76,7 @@ const Profile = () => {
         } finally {
           setLoading(false);
         }
-      } else if (isOwnProfile && user && !supabaseUser) {
+      } else if (isOwnProfile && user && !apiUser) {
         setLoading(false);
       } else if (profileId && id) {
         
@@ -137,7 +137,7 @@ const Profile = () => {
       }
     };
     loadProfileAndProofs();
-  }, [id, supabaseUser, user, refreshKey, isOwnProfile, currentUserId, profileId]);
+  }, [id, apiUser, user, refreshKey, isOwnProfile, currentUserId, profileId]);
   
   
   useEffect(() => {
@@ -145,7 +145,7 @@ const Profile = () => {
       console.log("Refreshing profile due to navigation state");
       
       const reloadProfile = async () => {
-        if (isOwnProfile && supabaseUser) {
+        if (isOwnProfile && apiUser) {
           try {
             const freshProfile = await getMyProfile();
             if (freshProfile) {
@@ -166,7 +166,7 @@ const Profile = () => {
                   setProofs(userProofs);
                 } else {
                   
-                  const fallbackProofs = await getUserProofs(supabaseUser.id);
+                  const fallbackProofs = await getUserProofs(apiUser.id);
                   if (fallbackProofs && fallbackProofs.length > 0) {
                     setProofs(fallbackProofs);
                   } else {
@@ -177,7 +177,7 @@ const Profile = () => {
                 console.error("Error reloading proofs:", proofError);
                 
                 try {
-                  const fallbackProofs = await getUserProofs(supabaseUser.id);
+                  const fallbackProofs = await getUserProofs(apiUser.id);
                   if (fallbackProofs) {
                     setProofs(fallbackProofs);
                   }
@@ -197,14 +197,14 @@ const Profile = () => {
       
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.state, location.pathname, navigate, isOwnProfile, supabaseUser]);
+  }, [location.state, location.pathname, navigate, isOwnProfile, apiUser]);
 
   
   useEffect(() => {
     const handleFocus = () => {
       
-      if (supabaseUser || user) {
-        if (isOwnProfile && supabaseUser) {
+      if (apiUser || user) {
+        if (isOwnProfile && apiUser) {
           
           const reloadData = async () => {
             try {
@@ -241,7 +241,7 @@ const Profile = () => {
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [id, supabaseUser, user, isOwnProfile, profileId]);
+  }, [id, apiUser, user, isOwnProfile, profileId]);
   
   
   const storedProfile = profileId ? getProfile(profileId) : null;
@@ -271,9 +271,9 @@ const Profile = () => {
     
     profile = {
       id: supabaseProfile.id,
-      name: supabaseProfile.full_name || supabaseProfile.username || supabaseUser?.user_metadata?.full_name || user?.name || "User",
-      email: supabaseUser?.email || user?.email || "",
-      avatar: supabaseProfile.avatar_url || supabaseUser?.user_metadata?.avatar_url || user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseProfile.full_name || "User"}`,
+      name: supabaseProfile.full_name || supabaseProfile.username || apiUser?.name || user?.name || "User",
+      email: apiUser?.email || user?.email || "",
+      avatar: supabaseProfile.avatar_url || apiUser?.avatar || user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseProfile.full_name || "User"}`,
       bio: supabaseProfile.bio || "Passionate learner and teacher. Love sharing knowledge with the community!",
       skillsKnown: Array.isArray(supabaseProfile.skills) ? supabaseProfile.skills : (supabaseProfile.skills ? [supabaseProfile.skills] : []),
       skillsLearning: skillsToLearnArray,
@@ -363,8 +363,8 @@ const Profile = () => {
   }
 
   
-  if (isOwnProfile && !supabaseProfile && !storedProfile && !loading && (supabaseUser || user)) {
-    const currentUser = supabaseUser || user;
+  if (isOwnProfile && !supabaseProfile && !storedProfile && !loading && (apiUser || user)) {
+    const currentUser = apiUser || user;
     return (
       <Layout>
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 max-w-4xl">
@@ -373,13 +373,13 @@ const Profile = () => {
               <Avatar className="h-20 w-20 sm:h-24 sm:w-24">
                 <AvatarImage 
                   src={
-                    (supabaseUser?.user_metadata?.avatar_url) || 
+                    (apiUser?.avatar) || 
                     (user?.avatar) || 
-                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseUser?.email || user?.email || "User"}`
+                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${apiUser?.email || user?.email || "User"}`
                   } 
                 />
                 <AvatarFallback className="text-xl sm:text-2xl">
-                  {(supabaseUser?.email || user?.email || "U")[0]?.toUpperCase() || "U"}
+                  {(apiUser?.email || user?.email || "U")[0]?.toUpperCase() || "U"}
                 </AvatarFallback>
               </Avatar>
               <div>
@@ -594,7 +594,7 @@ const Profile = () => {
                                     type="button"
                                     size="sm"
                                     onClick={async () => {
-                                      if (!selectedFile || !supabaseUser) {
+                                      if (!selectedFile || !apiUser) {
                                         toast.error("Please select a file and ensure you're logged in");
                                         return;
                                       }
@@ -612,7 +612,7 @@ const Profile = () => {
                                         
                                         
                                         console.log(`Uploading proof for skill: ${skill}`);
-                                        const fileUrl = await uploadProof(selectedFile);
+                                        const { publicUrl: fileUrl } = await uploadFile("proofs", `${skill}-${Date.now()}`, selectedFile);
                                         console.log(`File uploaded successfully. URL: ${fileUrl}`);
                                         
                                         
@@ -621,9 +621,9 @@ const Profile = () => {
                                         console.log(`Proof saved to database:`, savedProof);
                                         
                                         
-                                        if (supabaseUser.id) {
-                                          console.log(`Reloading proofs from Supabase for user: ${supabaseUser.id}`);
-                                          const updatedProofs = await getUserProofs(supabaseUser.id);
+                                        if (apiUser.id) {
+                                          console.log(`Reloading proofs from Supabase for user: ${apiUser.id}`);
+                                          const updatedProofs = await getUserProofs(apiUser.id);
                                           console.log(`Loaded ${updatedProofs.length} proofs from Supabase:`, updatedProofs);
                                           
                                           

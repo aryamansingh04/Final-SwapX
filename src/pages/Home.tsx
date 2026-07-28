@@ -12,6 +12,13 @@ import ProfileCard from "@/components/ProfileCard";
 import ProfileModal from "@/components/ProfileModal";
 import Layout from "@/components/Layout";
 import { mockUsers } from "@/data/mockUsers";
+import { useAuthStore } from "@/stores/useAuthStore";
+import {
+  demoAccountToExploreUser,
+  getOtherDemoAccounts,
+  isDemoUserId,
+} from "@/lib/demo-accounts";
+import { getDemoMeetingsForUser } from "@/lib/demo-sync";
 import { format, isToday, isTomorrow, isPast, isFuture } from "date-fns";
 import { useNavigate } from "react-router-dom";
 
@@ -31,6 +38,7 @@ interface ScheduledMeeting {
 
 const Home = () => {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [selectedUser, setSelectedUser] = useState<typeof mockUsers[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -39,11 +47,17 @@ const Home = () => {
   const [scheduledMeetings, setScheduledMeetings] = useState<ScheduledMeeting[]>([]);
 
   
+  const demoUsers = user && isDemoUserId(user.id)
+    ? getOtherDemoAccounts(user.id).map(demoAccountToExploreUser)
+    : [];
+
+  const allUsers = [...demoUsers, ...mockUsers.filter((mockUser) => !demoUsers.some((demo) => demo.id === mockUser.id))];
+
   const allSkills = Array.from(
-    new Set(mockUsers.flatMap(user => user.skillsKnown))
+    new Set(allUsers.flatMap((profile) => profile.skillsKnown))
   ).sort();
 
-  const filteredUsers = mockUsers.filter(user => {
+  const filteredUsers = allUsers.filter(user => {
     
     const matchesSearch = 
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -78,6 +92,24 @@ const Home = () => {
   
   useEffect(() => {
     const loadMeetings = () => {
+      if (user && isDemoUserId(user.id)) {
+        const meetings = getDemoMeetingsForUser(user.id).map((meeting) => ({
+          id: meeting.id,
+          userId: meeting.fromUserId === user.id ? meeting.toUserId : meeting.fromUserId,
+          userName: meeting.fromUserId === user.id ? meeting.toName : meeting.fromName,
+          userAvatar: meeting.fromUserId === user.id ? meeting.toAvatar : meeting.fromAvatar,
+          scheduledBy: meeting.fromUserId,
+          scheduledByName: meeting.fromName,
+          date: meeting.date,
+          mode: meeting.mode,
+          location: meeting.location,
+          link: meeting.link,
+          createdAt: meeting.createdAt,
+        }));
+        setScheduledMeetings(meetings);
+        return;
+      }
+
       const meetings = JSON.parse(localStorage.getItem("scheduledMeetings") || "[]");
       
       const now = new Date();
@@ -103,7 +135,7 @@ const Home = () => {
     return () => {
       window.removeEventListener("meetingsUpdated", handleMeetingsUpdate);
     };
-  }, []);
+  }, [user]);
 
   const formatMeetingDate = (dateString: string) => {
     const date = new Date(dateString);

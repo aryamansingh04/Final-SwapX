@@ -17,11 +17,13 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { myConnections } from "@/lib/connections";
 import { sendMessage } from "@/lib/chat";
 import { getProfileById } from "@/lib/profile";
+import { getToken } from "@/lib/api";
+import { createMeeting, initiateCall } from "@/lib/social-api";
 
 const MeetingScheduler = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id?: string }>();
-  const { user: supabaseUser } = useAuthUser();
+  const { user: apiUser } = useAuthUser();
   const { user: authStoreUser } = useAuthStore();
   const [mode, setMode] = useState<"online" | "offline">("online");
   const [date, setDate] = useState<Date | undefined>(new Date());
@@ -32,7 +34,7 @@ const MeetingScheduler = () => {
   const getChatUserInfo = async () => {
     if (id && id !== "new") {
       
-      if (supabaseUser || authStoreUser) {
+      if (apiUser || authStoreUser) {
         try {
           const profile = await getProfileById(id);
           if (profile) {
@@ -73,7 +75,7 @@ const MeetingScheduler = () => {
     if (id && id !== "new") {
       loadChatUser();
     }
-  }, [id, supabaseUser, authStoreUser]);
+  }, [id, apiUser, authStoreUser]);
 
   const handleSchedule = async () => {
     if (!date) {
@@ -92,14 +94,36 @@ const MeetingScheduler = () => {
     const meetingDate = new Date(date);
     meetingDate.setHours(parseInt(time.split(":")[0]), parseInt(time.split(":")[1]), 0, 0);
     const attendeeName = chatUser.name;
-    const currentUser = supabaseUser || authStoreUser;
-    const currentUserName = supabaseUser?.user_metadata?.full_name || 
-                            supabaseUser?.email?.split("@")[0] || 
+    const currentUser = apiUser || authStoreUser;
+    const currentUserName = apiUser?.name ||
                             authStoreUser?.name || 
                             "You";
     
     try {
-      
+      const currentUserId = apiUser?.id || authStoreUser?.id;
+      const jitsiLink = mode === "online" ? `https://meet.jit.si/swapx-${Date.now()}` : null;
+
+      if (currentUserId && chatUser.id && getToken()) {
+        await createMeeting({
+          to_user_id: chatUser.id,
+          date: meetingDate.toISOString(),
+          mode,
+          location: mode === "offline" ? location : null,
+          link: jitsiLink,
+        });
+
+        toast.success(
+          mode === "online"
+            ? `Meeting scheduled! ${chatUser.name} will see it on their dashboard.`
+            : `Meeting scheduled! ${chatUser.name} will be notified.`
+        );
+
+        setTimeout(() => {
+          navigate(`/chat/${chatUser.id}`);
+        }, 1200);
+        return;
+      }
+
       const meetings = JSON.parse(localStorage.getItem("scheduledMeetings") || "[]");
       const meetingId = `meeting-${Date.now()}`;
       const newMeeting = {
@@ -120,13 +144,13 @@ const MeetingScheduler = () => {
       window.dispatchEvent(new Event("meetingsUpdated"));
       
       
-      if (supabaseUser || authStoreUser) {
+      if (apiUser || authStoreUser) {
         try {
           
           const connections = await myConnections();
           const connection = connections.find(
-            conn => (conn.user_id === (supabaseUser?.id || authStoreUser?.id) && conn.partner_id === chatUser.id) ||
-                    (conn.partner_id === (supabaseUser?.id || authStoreUser?.id) && conn.user_id === chatUser.id)
+            conn => (conn.user_id === (apiUser?.id || authStoreUser?.id) && conn.partner_id === chatUser.id) ||
+                    (conn.partner_id === (apiUser?.id || authStoreUser?.id) && conn.user_id === chatUser.id)
           );
           
           if (connection && connection.status === "accepted") {
@@ -262,9 +286,23 @@ const MeetingScheduler = () => {
     toast.info("Meeting ended. Please rate your session partner.");
   };
 
-  const handleStartNow = () => {
-    
+  const handleStartNow = async () => {
     const jitsiLink = `https://meet.jit.si/swapx-${Date.now()}`;
+    const currentUserId = apiUser?.id || authStoreUser?.id;
+
+    if (currentUserId && chatUser && getToken()) {
+      await initiateCall({
+        to_user_id: chatUser.id,
+        link: jitsiLink,
+        type: "video",
+      });
+      setMeetingLink(jitsiLink);
+      setIsMeetingActive(true);
+      window.open(jitsiLink, "_blank");
+      toast.success(`Calling ${chatUser.name}...`);
+      return;
+    }
+
     setMeetingLink(jitsiLink);
     setIsMeetingActive(true);
     window.open(jitsiLink, "_blank");

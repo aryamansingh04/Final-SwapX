@@ -1,4 +1,6 @@
-import { supabase } from "./supabase";
+import { useAuthStore } from "@/stores/useAuthStore";
+
+const NOTES_KEY = "swapx_notes";
 
 export interface Note {
   id: number;
@@ -22,270 +24,74 @@ export interface UpdateNoteData {
   is_public?: boolean;
 }
 
+function readNotes(): Note[] {
+  try {
+    return JSON.parse(localStorage.getItem(NOTES_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
 
+function writeNotes(notes: Note[]) {
+  localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+}
+
+function getCurrentUserId(): string {
+  const userId = useAuthStore.getState().user?.id;
+  if (!userId) throw new Error("User is not authenticated. Please sign in first.");
+  return userId;
+}
 
 export async function listPublicNotes(): Promise<Note[]> {
-  try {
-    const { data, error } = await supabase
-      .from("notes")
-      .select("*")
-      .eq("is_public", true)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      throw new Error(`Failed to fetch public notes: ${error.message}`);
-    }
-
-    return data || [];
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error("Failed to fetch public notes: Unknown error occurred");
-  }
+  return readNotes()
+    .filter((note) => note.is_public)
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 }
-
-
 
 export async function myNotes(): Promise<Note[]> {
-  try {
-    
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
-    }
-
-    if (!user) {
-      throw new Error("User is not authenticated. Please sign in first.");
-    }
-
-    
-    const { data, error } = await supabase
-      .from("notes")
-      .select("*")
-      .eq("author", user.id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      throw new Error(`Failed to fetch notes: ${error.message}`);
-    }
-
-    return data || [];
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error("Failed to fetch notes: Unknown error occurred");
-  }
+  const userId = getCurrentUserId();
+  return readNotes()
+    .filter((note) => note.author === userId)
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 }
 
-
-
-export async function createNote(noteData: CreateNoteData): Promise<Note> {
-  try {
-    
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
-    }
-
-    if (!user) {
-      throw new Error("User is not authenticated. Please sign in first.");
-    }
-
-    if (!noteData.title || noteData.title.trim() === "") {
-      throw new Error("Note title is required.");
-    }
-
-    if (!noteData.body || noteData.body.trim() === "") {
-      throw new Error("Note body is required.");
-    }
-
-    
-    const { data, error } = await supabase
-      .from("notes")
-      .insert({
-        author: user.id,
-        title: noteData.title.trim(),
-        body: noteData.body.trim(),
-        is_public: noteData.is_public,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to create note: ${error.message}`);
-    }
-
-    if (!data) {
-      throw new Error("Failed to create note: No data returned");
-    }
-
-    return data;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error("Failed to create note: Unknown error occurred");
-  }
+export async function createNote(data: CreateNoteData): Promise<Note> {
+  const userId = getCurrentUserId();
+  const notes = readNotes();
+  const note: Note = {
+    id: Date.now(),
+    author: userId,
+    title: data.title,
+    body: data.body,
+    is_public: data.is_public,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  notes.unshift(note);
+  writeNotes(notes);
+  return note;
 }
 
+export async function updateNote(id: number, data: UpdateNoteData): Promise<Note> {
+  const userId = getCurrentUserId();
+  const notes = readNotes();
+  const index = notes.findIndex((note) => note.id === id && note.author === userId);
+  if (index === -1) throw new Error("Note not found");
 
-
-export async function updateNote(
-  id: number,
-  patch: UpdateNoteData
-): Promise<Note> {
-  try {
-    
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
-    }
-
-    if (!user) {
-      throw new Error("User is not authenticated. Please sign in first.");
-    }
-
-    if (!id || id <= 0) {
-      throw new Error("Valid note ID is required.");
-    }
-
-    
-    const { data: note, error: fetchError } = await supabase
-      .from("notes")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (fetchError) {
-      throw new Error(`Failed to fetch note: ${fetchError.message}`);
-    }
-
-    if (!note) {
-      throw new Error("Note not found.");
-    }
-
-    
-    if (note.author !== user.id) {
-      throw new Error(
-        "Unauthorized: You can only update your own notes."
-      );
-    }
-
-    
-    const updateData: Record<string, any> = {};
-    if (patch.title !== undefined) {
-      if (patch.title.trim() === "") {
-        throw new Error("Note title cannot be empty.");
-      }
-      updateData.title = patch.title.trim();
-    }
-    if (patch.body !== undefined) {
-      if (patch.body.trim() === "") {
-        throw new Error("Note body cannot be empty.");
-      }
-      updateData.body = patch.body.trim();
-    }
-    if (patch.is_public !== undefined) {
-      updateData.is_public = patch.is_public;
-    }
-
-    
-    const { data, error } = await supabase
-      .from("notes")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to update note: ${error.message}`);
-    }
-
-    if (!data) {
-      throw new Error("Failed to update note: No data returned");
-    }
-
-    return data;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error("Failed to update note: Unknown error occurred");
-  }
+  notes[index] = {
+    ...notes[index],
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  writeNotes(notes);
+  return notes[index];
 }
-
-
 
 export async function deleteNote(id: number): Promise<void> {
-  try {
-    
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
-    }
-
-    if (!user) {
-      throw new Error("User is not authenticated. Please sign in first.");
-    }
-
-    if (!id || id <= 0) {
-      throw new Error("Valid note ID is required.");
-    }
-
-    
-    const { data: note, error: fetchError } = await supabase
-      .from("notes")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (fetchError) {
-      throw new Error(`Failed to fetch note: ${fetchError.message}`);
-    }
-
-    if (!note) {
-      throw new Error("Note not found.");
-    }
-
-    
-    if (note.author !== user.id) {
-      throw new Error(
-        "Unauthorized: You can only delete your own notes."
-      );
-    }
-
-    
-    const { error } = await supabase
-      .from("notes")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      throw new Error(`Failed to delete note: ${error.message}`);
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error("Failed to delete note: Unknown error occurred");
-  }
+  const userId = getCurrentUserId();
+  writeNotes(readNotes().filter((note) => !(note.id === id && note.author === userId)));
 }
 
+export async function getNoteById(id: number): Promise<Note | null> {
+  return readNotes().find((note) => note.id === id) ?? null;
+}

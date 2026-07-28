@@ -7,23 +7,23 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { useAuthStore } from "@/stores/useAuthStore";
-import { useProfileStore } from "@/stores/useProfileStore";
 
 import { toast } from "sonner";
-import { generateUserIdFromEmail } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
 import { getMyProfile } from "@/lib/profile";
 import { useAppAuth } from "@/hooks/useAppAuth";
-
-const DEMO_EMAIL = "demo@swapx.com";
-const DEMO_PASSWORD = "Demo@123";
+import { loginApi, setToken } from "@/lib/api";
+import {
+  DEMO_ACCOUNT_1_EMAIL,
+  DEMO_ACCOUNT_1_PASSWORD,
+  DEMO_ACCOUNT_2_EMAIL,
+  DEMO_ACCOUNT_2_PASSWORD,
+} from "@/lib/demo-accounts";
 
 const Login = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading: authLoading, isLocalUser } = useAppAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAppAuth();
 
   const { setUser } = useAuthStore();
-  const { getProfile } = useProfileStore();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,34 +31,9 @@ const Login = () => {
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      navigate(isLocalUser ? "/dashboard" : "/home", { replace: true });
+      navigate("/dashboard", { replace: true });
     }
-  }, [authLoading, isAuthenticated, isLocalUser, navigate]);
-
-  const handleDemoLogin = () => {
-    let profile = getProfile(generateUserIdFromEmail(DEMO_EMAIL));
-
-    if (!profile) {
-      profile = {
-        id: generateUserIdFromEmail(DEMO_EMAIL),
-        email: DEMO_EMAIL,
-        name: "Demo User",
-        skills: [],
-        skillsToLearn: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    setUser({
-      id: profile.id,
-      email: profile.email,
-      name: profile.name,
-    });
-
-    toast.success("Welcome to SwapX!");
-    navigate("/dashboard");
-  };
+  }, [authLoading, isAuthenticated, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,45 +41,30 @@ const Login = () => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    if (normalizedEmail === DEMO_EMAIL && password === DEMO_PASSWORD) {
-      handleDemoLogin();
-      setIsLoading(false);
-      return;
-    }
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
-
-    if (error) {
-      toast.error(error.message || "Invalid email or password");
-      setIsLoading(false);
-      return;
-    }
-
-    if (data.user) {
+    try {
+      const { token, user } = await loginApi(normalizedEmail, password);
+      setToken(token);
       setUser({
-        id: data.user.id,
-        email: data.user.email ?? normalizedEmail,
-        name:
-          data.user.user_metadata?.full_name ??
-          data.user.email?.split("@")[0] ??
-          "User",
-        avatar: data.user.user_metadata?.avatar_url,
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar: user.avatar,
       });
+      window.dispatchEvent(new Event("authChanged"));
 
-      toast.success("Welcome to SwapX!");
+      toast.success(`Welcome, ${user.name}!`);
 
       try {
         const profile = await getMyProfile();
-        navigate(profile ? "/home" : "/profile/setup", { replace: true });
+        navigate(profile ? "/dashboard" : "/profile/setup", { replace: true });
       } catch {
         navigate("/profile/setup", { replace: true });
       }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Invalid email or password");
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   };
 
   if (authLoading) {
@@ -122,11 +82,11 @@ const Login = () => {
           <CardHeader>
             <CardTitle>Login</CardTitle>
             <CardDescription>
-              Demo Credentials:
+              Demo accounts (open two browsers/tabs to test together):
               <br />
-              demo@swapx.com
+              {DEMO_ACCOUNT_1_EMAIL} / {DEMO_ACCOUNT_1_PASSWORD}
               <br />
-              Demo@123
+              {DEMO_ACCOUNT_2_EMAIL} / {DEMO_ACCOUNT_2_PASSWORD}
             </CardDescription>
           </CardHeader>
 

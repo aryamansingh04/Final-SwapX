@@ -88,9 +88,9 @@ const GroupDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user: authStoreUser } = useAuthStore();
-  const { user: supabaseUser } = useAuthUser();
+  const { user: apiUser } = useAuthUser();
   
-  const user = supabaseUser || authStoreUser;
+  const user = apiUser || authStoreUser;
   const [group, setGroup] = useState<Group | null>(null);
   const [messageText, setMessageText] = useState("");
   const [selectedMessage, setSelectedMessage] = useState<GroupMessage | null>(null);
@@ -320,7 +320,7 @@ const GroupDetail = () => {
     }
     
     
-    if (!supabaseUser && !authStoreUser) {
+    if (!apiUser && !authStoreUser) {
       toast.error("Please log in to send messages");
       setShowAnonymousDialog(false);
       setPendingMessage("");
@@ -456,7 +456,7 @@ const GroupDetail = () => {
     }
     
     
-    if (!supabaseUser && !authStoreUser) {
+    if (!apiUser && !authStoreUser) {
       toast.error("Please log in to send messages");
       return;
     }
@@ -469,7 +469,7 @@ const GroupDetail = () => {
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (messageText.trim() && group && (supabaseUser || authStoreUser)) {
+      if (messageText.trim() && group && (apiUser || authStoreUser)) {
         handleSendClick();
       }
     }
@@ -488,7 +488,7 @@ const GroupDetail = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    if (!group || (!supabaseUser && !authStoreUser)) {
+    if (!group || (!apiUser && !authStoreUser)) {
       toast.error("Unable to send file. Please log in first.");
       e.target.value = "";
       return;

@@ -1,4 +1,6 @@
-import { supabase } from "./supabase";
+import { useAuthStore } from "@/stores/useAuthStore";
+
+const PROOFS_KEY = "swapx_proofs";
 
 export interface Proof {
   id: number;
@@ -7,146 +9,98 @@ export interface Proof {
   file_url: string;
   file_type: string;
   created_at?: string;
-  updated_at?: string;
 }
 
 export interface ProofWithSkill {
-  type: string;
-  url: string;
+  id: number;
   skill: string;
+  url: string;
+  type: string;
 }
 
+function readProofs(): Proof[] {
+  try {
+    return JSON.parse(localStorage.getItem(PROOFS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
 
+function writeProofs(proofs: Proof[]) {
+  localStorage.setItem(PROOFS_KEY, JSON.stringify(proofs));
+}
+
+function getCurrentUserId(): string {
+  const userId = useAuthStore.getState().user?.id;
+  if (!userId) throw new Error("User is not authenticated. Please sign in first.");
+  return userId;
+}
+
+function toProofWithSkill(proof: Proof): ProofWithSkill {
+  return {
+    id: proof.id,
+    skill: proof.skill,
+    url: proof.file_url,
+    type: proof.file_type,
+  };
+}
 
 export async function getUserProofs(userId: string): Promise<ProofWithSkill[]> {
-  try {
-    const { data, error } = await supabase
-      .from("proofs")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      
-      if (error.code === "PGRST116" || error.message.includes("does not exist")) {
-        return [];
-      }
-      throw new Error(`Failed to fetch proofs: ${error.message}`);
-    }
-
-    if (!data || data.length === 0) {
-      return [];
-    }
-
-    
-    return data.map((proof: Proof) => ({
-      type: proof.file_type || "pdf",
-      url: proof.file_url,
-      skill: proof.skill,
-    }));
-  } catch (error) {
-    console.error("Error fetching proofs:", error);
-    
-    return [];
-  }
+  return readProofs()
+    .filter((proof) => proof.user_id === userId)
+    .map(toProofWithSkill);
 }
-
-
 
 export async function getMyProofs(): Promise<ProofWithSkill[]> {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      throw new Error("User not authenticated");
-    }
-
-    return getUserProofs(user.id);
-  } catch (error) {
-    console.error("Error fetching my proofs:", error);
-    return [];
-  }
+  return getUserProofs(getCurrentUserId());
 }
-
-
 
 export async function saveProof(
   skill: string,
   fileUrl: string,
   fileType: string
-): Promise<Proof> {
-  try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
-    }
+): Promise<ProofWithSkill> {
+  const userId = getCurrentUserId();
+  const proof: Proof = {
+    id: Date.now(),
+    user_id: userId,
+    skill,
+    file_url: fileUrl,
+    file_type: fileType,
+    created_at: new Date().toISOString(),
+  };
 
-    if (!user) {
-      throw new Error("User is not authenticated. Please sign in first.");
-    }
-
-    if (!skill || skill.trim() === "") {
-      throw new Error("Skill name is required.");
-    }
-
-    if (!fileUrl || fileUrl.trim() === "") {
-      throw new Error("File URL is required.");
-    }
-
-    
-    console.log("Inserting proof into database:", {
-      user_id: user.id,
-      skill: skill.trim(),
-      file_url: fileUrl,
-      file_type: fileType || "pdf",
-    });
-    
-    const { data, error } = await supabase
-      .from("proofs")
-      .insert({
-        user_id: user.id,
-        skill: skill.trim(),
-        file_url: fileUrl,
-        file_type: fileType || "pdf",
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Error inserting proof:", error);
-      
-      if (error.code === "42P01" || error.message.includes("does not exist")) {
-        throw new Error(`Proofs table does not exist in database. Please run the migration to create it. Error: ${error.message}`);
-      }
-      throw new Error(`Failed to save proof: ${error.message}`);
-    }
-
-    if (!data) {
-      throw new Error("Failed to save proof: No data returned");
-    }
-
-    console.log("Proof saved successfully to database:", data);
-    
-    
-    const { data: verifyData, error: verifyError } = await supabase
-      .from("proofs")
-      .select("*")
-      .eq("id", data.id)
-      .single();
-    
-    if (verifyError) {
-      console.warn("Warning: Could not verify proof was saved:", verifyError);
-    } else if (verifyData) {
-      console.log("Verified proof exists in database:", verifyData);
-    }
-
-    return data;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error("Failed to save proof: Unknown error occurred");
-  }
+  const proofs = readProofs();
+  proofs.unshift(proof);
+  writeProofs(proofs);
+  return toProofWithSkill(proof);
 }
 
+export async function uploadProof(skill: string, file: File): Promise<Proof> {
+  const fileUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
+  return saveProof(skill, fileUrl, file.type || "application/octet-stream").then((saved) => ({
+    id: saved.id,
+    user_id: getCurrentUserId(),
+    skill: saved.skill,
+    file_url: saved.url,
+    file_type: saved.type,
+    created_at: new Date().toISOString(),
+  }));
+}
+
+export async function deleteProof(id: number): Promise<void> {
+  const userId = getCurrentUserId();
+  writeProofs(readProofs().filter((proof) => !(proof.id === id && proof.user_id === userId)));
+}
+
+export async function verifyProof(id: number): Promise<Proof> {
+  const proof = readProofs().find((item) => item.id === id);
+  if (!proof) throw new Error("Proof not found");
+  return proof;
+}

@@ -13,6 +13,12 @@ import { Separator } from "@/components/ui/separator";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { isDemoUserId } from "@/lib/demo-accounts";
+import {
+  getDemoConnectionStatus,
+  isDemoUsersConnected,
+  sendDemoConnectionRequest,
+} from "@/lib/demo-sync";
 
 interface ProfileModalProps {
   user: {
@@ -40,7 +46,43 @@ const ProfileModal = ({ user, isOpen, onClose }: ProfileModalProps) => {
   if (!user) return null;
 
   const handleConnect = () => {
-    
+    if (!currentUser) {
+      toast.error("Please sign in first");
+      return;
+    }
+
+    if (isDemoUserId(currentUser.id) && isDemoUserId(user.id)) {
+      if (isDemoUsersConnected(currentUser.id, user.id)) {
+        toast.info("You are already connected with this user");
+        navigate(`/chat/${user.id}`);
+        onClose();
+        return;
+      }
+
+      const status = getDemoConnectionStatus(currentUser.id, user.id);
+      if (status === "pending-sent") {
+        toast.info("Connection request already sent");
+        navigate(`/chat/${user.id}`);
+        onClose();
+        return;
+      }
+
+      try {
+        sendDemoConnectionRequest(currentUser.id, user.id, {
+          message: `Hi ${user.name}, let's swap skills on SwapX!`,
+          skill: user.skillsToLearn[0] || user.skillsKnown[0] || "Skill Swap",
+        });
+        toast.success("Connection request sent!");
+        setTimeout(() => {
+          onClose();
+          navigate(`/chat/${user.id}`);
+        }, 500);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to send request");
+      }
+      return;
+    }
+
     const connectionRequestsSent = JSON.parse(
       localStorage.getItem("connectionRequestsSent") || "[]"
     );

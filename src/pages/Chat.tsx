@@ -72,6 +72,18 @@ import {
 import { myConnections } from "@/lib/connections";
 import { getProfileById } from "@/lib/profile";
 import { toast } from "sonner";
+import { getToken } from "@/lib/api";
+import { getDemoAccountById, getOtherDemoAccounts, isDemoUserId } from "@/lib/demo-accounts";
+import {
+  acceptDemoConnectionRequest,
+  getConnectionRequestsReceived,
+  getDemoConnectionStatus,
+  getDemoMessages,
+  initiateDemoCall,
+  rejectDemoConnectionRequest,
+  sendDemoChatMessage,
+  sendDemoConnectionRequest,
+} from "@/lib/demo-sync";
 
 interface ChatMessage {
   id: string;
@@ -514,7 +526,7 @@ const Chat = () => {
   const { connectionId } = useParams<{ connectionId?: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { user: supabaseUser } = useAuthUser();
+  const { user: apiUser } = useAuthUser();
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(connectionId || null);
@@ -531,6 +543,46 @@ const Chat = () => {
     const loadChats = async () => {
       const savedChats = parseStoredChats(localStorage.getItem("chats"));
       let allChats = mergeChatLists(mockChats, savedChats);
+
+      if (user && isDemoUserId(user.id) && !getToken()) {
+        const demoPartners = getOtherDemoAccounts(user.id);
+        const demoChatMap = new Map(allChats.map((chat) => [chat.id, chat]));
+
+        for (const partner of demoPartners) {
+          const connectionStatus = getDemoConnectionStatus(user.id, partner.id);
+          const demoMessages = getDemoMessages(user.id, partner.id).map((msg) => ({
+            id: msg.id,
+            sender: msg.fromUserId === user.id ? "You" : msg.senderName,
+            text: msg.text,
+            time: format(new Date(msg.timestamp), "h:mm a"),
+            timestamp: new Date(msg.timestamp),
+            isOwn: msg.fromUserId === user.id,
+            status: msg.fromUserId === user.id ? ("sent" as const) : undefined,
+          }));
+
+          const lastMessage = demoMessages[demoMessages.length - 1];
+          const demoChat: Chat = {
+            id: partner.id,
+            name: partner.name,
+            avatar: partner.avatar,
+            lastMessage: lastMessage?.text ?? "Start a conversation",
+            lastMessageTime: lastMessage ? format(new Date(lastMessage.timestamp), "h:mm a") : "Now",
+            unreadCount: 0,
+            isPinned: true,
+            isMuted: false,
+            isArchived: false,
+            isTyping: false,
+            connectionStatus,
+            messages: demoMessages,
+          };
+
+          demoChatMap.set(partner.id, demoChat);
+        }
+
+        allChats = sortChatsByRecent(Array.from(demoChatMap.values()));
+        setChats(allChats);
+        return;
+      }
 
       const connectionRequestsSent = JSON.parse(
         localStorage.getItem("connectionRequestsSent") || "[]"
@@ -565,14 +617,14 @@ const Chat = () => {
         };
       });
 
-      if (supabaseUser) {
+      if (apiUser) {
         try {
           const supabaseConnections = await myConnections();
           const chatMap = new Map(allChats.map((chat) => [chat.id, chat]));
 
           for (const connection of supabaseConnections) {
             const partnerId =
-              connection.user_id === supabaseUser.id
+              connection.user_id === apiUser.id
                 ? connection.partner_id
                 : connection.user_id;
 
@@ -587,12 +639,12 @@ const Chat = () => {
                   const supabaseMessages = await getMessages(connection.id);
                   const chatMessages: ChatMessage[] = supabaseMessages.map((msg) => ({
                     id: msg.id.toString(),
-                    sender: msg.sender === supabaseUser.id ? "You" : existingChat.name,
+                    sender: msg.sender === apiUser.id ? "You" : existingChat.name,
                     text: msg.content,
                     time: msg.created_at ? format(new Date(msg.created_at), "h:mm a") : "",
                     timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
-                    isOwn: msg.sender === supabaseUser.id,
-                    status: msg.sender === supabaseUser.id ? "sent" : undefined,
+                    isOwn: msg.sender === apiUser.id,
+                    status: msg.sender === apiUser.id ? "sent" : undefined,
                   }));
 
                   if (chatMessages.length > 0) {
@@ -611,7 +663,7 @@ const Chat = () => {
                 }
               } else if (connection.status === "pending") {
                 existingChat.connectionStatus =
-                  connection.user_id === supabaseUser.id
+                  connection.user_id === apiUser.id
                     ? "pending-sent"
                     : "pending-received";
               }
@@ -632,14 +684,14 @@ const Chat = () => {
               const chatMessages: ChatMessage[] = allMessages.map((msg) => ({
                 id: msg.id.toString(),
                 sender:
-                  msg.sender === supabaseUser.id
+                  msg.sender === apiUser.id
                     ? "You"
                     : partnerProfile.full_name || partnerProfile.username || "User",
                 text: msg.content,
                 time: msg.created_at ? format(new Date(msg.created_at), "h:mm a") : "",
                 timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
-                isOwn: msg.sender === supabaseUser.id,
-                status: msg.sender === supabaseUser.id ? "sent" : undefined,
+                isOwn: msg.sender === apiUser.id,
+                status: msg.sender === apiUser.id ? "sent" : undefined,
               }));
 
               let connectionStatus:
@@ -651,7 +703,7 @@ const Chat = () => {
                 connectionStatus = "connected";
               } else if (connection.status === "pending") {
                 connectionStatus =
-                  connection.user_id === supabaseUser.id ? "pending-sent" : "pending-received";
+                  connection.user_id === apiUser.id ? "pending-sent" : "pending-received";
               }
 
               const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
@@ -706,11 +758,15 @@ const Chat = () => {
       loadChats();
     };
     window.addEventListener("connectionRequestsUpdated", handleConnectionUpdate);
+    window.addEventListener("demoSyncUpdated", handleConnectionUpdate);
+    window.addEventListener("chatsUpdated", handleConnectionUpdate);
 
     return () => {
       window.removeEventListener("connectionRequestsUpdated", handleConnectionUpdate);
+      window.removeEventListener("demoSyncUpdated", handleConnectionUpdate);
+      window.removeEventListener("chatsUpdated", handleConnectionUpdate);
     };
-  }, [supabaseUser]);
+  }, [apiUser, user]);
   
   
   const [callHistory] = useState<CallHistory[]>([
@@ -986,7 +1042,21 @@ const Chat = () => {
       });
     };
 
-    if (currentChat.connectionId && supabaseUser) {
+    if (user && isDemoUserId(user.id) && isDemoUserId(selectedChatId)) {
+      sendDemoChatMessage(user.id, selectedChatId, messageText);
+      appendLocalMessage({
+        id: Date.now().toString(),
+        sender: "You",
+        text: messageText,
+        time: format(now, "h:mm a"),
+        timestamp: now,
+        isOwn: true,
+        status: "sent",
+      });
+      return;
+    }
+
+    if (currentChat.connectionId && apiUser) {
       const optimisticMessage: ChatMessage = {
         id: `temp-${Date.now()}`,
         sender: "You",
@@ -1010,12 +1080,12 @@ const Chat = () => {
 
         const allChatMessages: ChatMessage[] = allSupabaseMessages.map((msg) => ({
           id: msg.id.toString(),
-          sender: msg.sender === supabaseUser.id ? "You" : currentChat.name,
+          sender: msg.sender === apiUser.id ? "You" : currentChat.name,
           text: msg.content,
           time: msg.created_at ? format(new Date(msg.created_at), "h:mm a") : format(now, "h:mm a"),
           timestamp: msg.created_at ? new Date(msg.created_at) : now,
-          isOwn: msg.sender === supabaseUser.id,
-          status: msg.sender === supabaseUser.id ? "sent" : undefined,
+          isOwn: msg.sender === apiUser.id,
+          status: msg.sender === apiUser.id ? "sent" : undefined,
         }));
 
         updateChatMessages(selectedChatId, (chat) => ({
@@ -1292,11 +1362,29 @@ const Chat = () => {
 
   
   const handleSendConnectionRequest = (chatId: string) => {
-    
+    const chat = chats.find((c) => c.id === chatId);
+
+    if (user && isDemoUserId(user.id) && isDemoUserId(chatId) && chat) {
+      try {
+        sendDemoConnectionRequest(user.id, chatId, {
+          message: `Hi ${chat.name}, let's connect on SwapX!`,
+          skill: "Skill Swap",
+        });
+        setChats((prevChats) =>
+          prevChats.map((c) =>
+            c.id === chatId ? { ...c, connectionStatus: "pending-sent" as const } : c
+          )
+        );
+        toast.success("Connection request sent!");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to send request");
+      }
+      return;
+    }
+
     const connectionRequestsSent = JSON.parse(
       localStorage.getItem("connectionRequestsSent") || "[]"
     );
-    const chat = chats.find((c) => c.id === chatId);
     
     if (chat && !connectionRequestsSent.some((r: any) => r.userId === chatId)) {
       
@@ -1334,7 +1422,26 @@ const Chat = () => {
   };
 
   const handleAcceptConnection = (chatId: string) => {
-    
+    if (user && isDemoUserId(user.id)) {
+      const received = getConnectionRequestsReceived(user.id).find(
+        (request) => request.userId === chatId
+      );
+
+      if (received) {
+        acceptDemoConnectionRequest(received.id, user.id);
+        setChats((prevChats) =>
+          prevChats.map((chat) =>
+            chat.id === chatId
+              ? { ...chat, connectionStatus: "connected" as const, lastMessage: "Start a conversation" }
+              : chat
+          )
+        );
+        window.dispatchEvent(new Event("demoSyncUpdated"));
+        toast.success("Connection accepted! You can now chat.");
+      }
+      return;
+    }
+
     const connectionRequestsReceived = JSON.parse(
       localStorage.getItem("connectionRequestsReceived") || "[]"
     );
@@ -1413,7 +1520,24 @@ const Chat = () => {
   };
 
   const handleRejectConnection = (chatId: string) => {
-    
+    if (user && isDemoUserId(user.id)) {
+      const received = getConnectionRequestsReceived(user.id).find(
+        (request) => request.userId === chatId
+      );
+
+      if (received) {
+        rejectDemoConnectionRequest(received.id, user.id);
+        setChats((prevChats) =>
+          prevChats.map((chat) =>
+            chat.id === chatId ? { ...chat, connectionStatus: "not-connected" as const } : chat
+          )
+        );
+        window.dispatchEvent(new Event("demoSyncUpdated"));
+        toast.success("Connection request rejected");
+      }
+      return;
+    }
+
     const connectionRequestsReceived = JSON.parse(
       localStorage.getItem("connectionRequestsReceived") || "[]"
     );
@@ -1467,6 +1591,20 @@ const Chat = () => {
   };
 
   const handleCall = (chatId?: string) => {
+    if (chatId && user && isDemoUserId(user.id) && isDemoUserId(chatId)) {
+      const partner = getDemoAccountById(chatId);
+      const jitsiLink = `https://meet.jit.si/swapx-${Date.now()}`;
+      initiateDemoCall({
+        fromUserId: user.id,
+        toUserId: chatId,
+        link: jitsiLink,
+        type: "video",
+      });
+      window.open(jitsiLink, "_blank");
+      toast.success(`Calling ${partner?.name ?? "user"}...`);
+      return;
+    }
+
     if (chatId) {
       
       navigate(`/meeting/${chatId}`);

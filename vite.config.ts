@@ -8,7 +8,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 3000,
-    strictPort: false, // If port 3000 is in use, try next available port
+    strictPort: false,
+    proxy: {
+      "/api": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

@@ -10,108 +10,165 @@ import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useCommunityBadges } from "@/hooks/useCommunityBadges";
+import { useAuthStore } from "@/stores/useAuthStore";
+import { getToken } from "@/lib/api";
+import { acceptConnection, myConnections, rejectConnection } from "@/lib/connections";
+import { getMeetings } from "@/lib/social-api";
+import { getProfileById } from "@/lib/profile";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const { earnedBadges, earnedCount, totalBadges, leaderTitle } = useCommunityBadges();
-  
   const stats = [
     { label: "Total Sessions", value: "24", icon: Users, color: "text-primary" },
     { label: "Average Rating", value: "4.8", icon: Star, color: "text-accent" },
     { label: "Trust Score", value: "92", icon: TrendingUp, color: "text-secondary" },
   ];
 
-  const connections = [
-    {
-      id: "1",
-      name: "Sarah Johnson",
-      avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah",
-      skill: "React",
-      lastMessage: "See you tomorrow!",
-    },
-    {
-      id: "2",
-      name: "Alex Chen",
-      avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alex",
-      skill: "Python",
-      lastMessage: "Thanks for the session",
-    },
-  ];
+  const [connections, setConnections] = useState<
+    Array<{ id: string; name: string; avatar: string; skill: string; lastMessage: string }>
+  >([]);
 
   
-  const [scheduledMeetings, setScheduledMeetings] = useState([
-    {
-      id: "1",
-      attendeeId: "1",
-      attendeeName: "Sarah Johnson",
-      attendeeAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah",
-      date: new Date(Date.now() + 86400000), 
-      time: "10:00",
-      mode: "online" as "online" | "offline",
-      location: null as string | null,
-      link: "https://meet.jit.si/swapx-123456",
-    },
-    {
-      id: "2",
-      attendeeId: "2",
-      attendeeName: "Alex Chen",
-      attendeeAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alex",
-      date: new Date(Date.now() + 172800000), 
-      time: "14:30",
-      mode: "offline" as "online" | "offline",
-      location: "Coffee Shop, Downtown",
-      link: null as string | null,
-    },
-    {
-      id: "3",
-      attendeeId: "3",
-      attendeeName: "Maya Patel",
-      attendeeAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Maya",
-      date: new Date(Date.now() + 259200000), 
-      time: "16:00",
-      mode: "online" as "online" | "offline",
-      location: null as string | null,
-      link: "https://meet.jit.si/swapx-789012",
-    },
-  ]);
+  const [scheduledMeetings, setScheduledMeetings] = useState<
+    Array<{
+      id: string;
+      attendeeId: string;
+      attendeeName: string;
+      attendeeAvatar: string;
+      date: Date;
+      time: string;
+      mode: "online" | "offline";
+      location: string | null;
+      link: string | null;
+    }>
+  >([]);
 
   
-  const [connectionRequestsReceived, setConnectionRequestsReceived] = useState(() => {
-    const saved = localStorage.getItem("connectionRequestsReceived");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return parsed.map((r: any) => ({
-          ...r,
-          sentAt: new Date(r.sentAt),
-        }));
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  });
+  const [connectionRequestsReceived, setConnectionRequestsReceived] = useState<any[]>([]);
+  const [connectionRequestsSent, setConnectionRequestsSent] = useState<any[]>([]);
 
-  const [connectionRequestsSent, setConnectionRequestsSent] = useState(() => {
-    const saved = localStorage.getItem("connectionRequestsSent");
-    if (saved) {
+  const loadApiData = async () => {
+    if (!user || !getToken()) return;
+
+    try {
+      const allConnections = await myConnections();
+      const received: any[] = [];
+      const sent: any[] = [];
+      const accepted: typeof connections = [];
+
+      for (const conn of allConnections) {
+        const partnerId = conn.user_id === user.id ? conn.partner_id : conn.user_id;
+        const profile = await getProfileById(partnerId);
+
+        const view = {
+          id: String(conn.id),
+          userId: partnerId,
+          name: profile?.full_name || profile?.username || "User",
+          avatar:
+            profile?.avatar_url ||
+            `https://api.dicebear.com/7.x/avataaars/svg?seed=${partnerId}`,
+          skill: conn.skill || profile?.skills?.[0] || "Skill Swap",
+          message: conn.message,
+          sentAt: conn.created_at,
+          status: conn.status,
+        };
+
+        if (conn.status === "pending" && conn.partner_id === user.id) {
+          received.push(view);
+        } else if (conn.status === "pending" && conn.user_id === user.id) {
+          sent.push(view);
+        } else if (conn.status === "accepted") {
+          accepted.push({
+            id: partnerId,
+            name: view.name,
+            avatar: view.avatar,
+            skill: view.skill,
+            lastMessage: "Connected on SwapX",
+          });
+        }
+      }
+
+      setConnectionRequestsReceived(received);
+      setConnectionRequestsSent(sent);
+      setConnections(accepted);
+
+      const meetings = await getMeetings();
+      setScheduledMeetings(
+        meetings
+          .filter((meeting) => new Date(meeting.date) >= new Date())
+          .map((meeting) => {
+            const meetingDate = new Date(meeting.date);
+            const attendeeId =
+              meeting.from_user_id === user.id ? meeting.to_user_id : meeting.from_user_id;
+            return {
+              id: meeting.id,
+              attendeeId,
+              attendeeName: "User",
+              attendeeAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${attendeeId}`,
+              date: meetingDate,
+              time: format(meetingDate, "HH:mm"),
+              mode: meeting.mode,
+              location: meeting.location,
+              link: meeting.link,
+            };
+          })
+      );
+    } catch (error) {
+      console.error("Failed to load dashboard data:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+
+    if (getToken()) {
+      loadApiData();
+      return;
+    }
+
+    const savedReceived = localStorage.getItem("connectionRequestsReceived");
+    const savedSent = localStorage.getItem("connectionRequestsSent");
+
+    if (savedReceived) {
       try {
-        const parsed = JSON.parse(saved);
-        return parsed.map((r: any) => ({
-          ...r,
-          sentAt: new Date(r.sentAt),
-          status: r.status || "pending",
-        }));
+        const parsed = JSON.parse(savedReceived);
+        setConnectionRequestsReceived(
+          parsed.map((r: any) => ({
+            ...r,
+            sentAt: new Date(r.sentAt),
+          }))
+        );
       } catch {
-        return [];
+        setConnectionRequestsReceived([]);
       }
     }
-    return [];
-  });
+
+    if (savedSent) {
+      try {
+        const parsed = JSON.parse(savedSent);
+        setConnectionRequestsSent(
+          parsed.map((r: any) => ({
+            ...r,
+            sentAt: new Date(r.sentAt),
+            status: r.status || "pending",
+          }))
+        );
+      } catch {
+        setConnectionRequestsSent([]);
+      }
+    }
+  }, [user]);
 
   
   useEffect(() => {
     const handleUpdate = () => {
+      if (user && getToken()) {
+        loadApiData();
+        return;
+      }
+
       const savedReceived = localStorage.getItem("connectionRequestsReceived");
       const savedSent = localStorage.getItem("connectionRequestsSent");
       
@@ -142,12 +199,29 @@ const Dashboard = () => {
     };
 
     window.addEventListener("connectionRequestsUpdated", handleUpdate);
+    window.addEventListener("demoSyncUpdated", handleUpdate);
+    window.addEventListener("meetingsUpdated", handleUpdate);
     return () => {
       window.removeEventListener("connectionRequestsUpdated", handleUpdate);
+      window.removeEventListener("demoSyncUpdated", handleUpdate);
+      window.removeEventListener("meetingsUpdated", handleUpdate);
     };
-  }, []);
+  }, [user]);
 
-  const handleAcceptConnection = (requestId: string) => {
+  const handleAcceptConnection = async (requestId: string) => {
+    if (user && getToken()) {
+      try {
+        await acceptConnection(Number(requestId));
+        await loadApiData();
+        const request = connectionRequestsReceived.find((item) => item.id === requestId);
+        toast.success(`Connection accepted! You can now chat with ${request?.name ?? "user"}`);
+        if (request?.userId) navigate(`/chat/${request.userId}`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to accept connection");
+      }
+      return;
+    }
+
     const request = connectionRequestsReceived.find(r => r.id === requestId);
     if (request) {
       
@@ -202,7 +276,18 @@ const Dashboard = () => {
     }
   };
 
-  const handleRejectConnection = (requestId: string) => {
+  const handleRejectConnection = async (requestId: string) => {
+    if (user && getToken()) {
+      try {
+        await rejectConnection(Number(requestId));
+        await loadApiData();
+        toast.info("Connection request declined");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to decline connection");
+      }
+      return;
+    }
+
     const request = connectionRequestsReceived.find(r => r.id === requestId);
     if (request) {
       
@@ -236,6 +321,16 @@ const Dashboard = () => {
   };
 
   const handleCancelConnectionRequest = (requestId: string) => {
+    if (user && getToken()) {
+      rejectConnection(Number(requestId))
+        .then(() => loadApiData())
+        .then(() => toast.info("Connection request cancelled"))
+        .catch((error) =>
+          toast.error(error instanceof Error ? error.message : "Failed to cancel request")
+        );
+      return;
+    }
+
     const request = connectionRequestsSent.find(r => r.id === requestId);
     if (request) {
       

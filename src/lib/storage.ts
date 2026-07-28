@@ -1,56 +1,21 @@
-import { supabase } from "./supabase";
+export async function uploadFile(
+  bucket: string,
+  path: string,
+  file: File
+): Promise<{ path: string; publicUrl: string }> {
+  const publicUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
 
-
-
-export async function uploadProof(file: File): Promise<string> {
-  try {
-    
-    if (!file) {
-      throw new Error("File is required.");
-    }
-
-    
-    const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
-    if (!fileExtension) {
-      throw new Error("File must have an extension.");
-    }
-
-    
-    const randomUUID = crypto.randomUUID();
-    const fileName = `${randomUUID}.${fileExtension}`;
-    const filePath = fileName;
-
-    
-    const { data, error } = await supabase.storage
-      .from("proofs")
-      .upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (error) {
-      throw new Error(`Failed to upload file: ${error.message}`);
-    }
-
-    if (!data) {
-      throw new Error("Failed to upload file: No data returned");
-    }
-
-    
-    const { data: urlData } = supabase.storage
-      .from("proofs")
-      .getPublicUrl(data.path);
-
-    if (!urlData?.publicUrl) {
-      throw new Error("Failed to get public URL for uploaded file");
-    }
-
-    return urlData.publicUrl;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error("Failed to upload proof: Unknown error occurred");
-  }
+  return {
+    path: `${bucket}/${path}`,
+    publicUrl,
+  };
 }
 
+export async function getPublicUrl(bucket: string, path: string): Promise<string> {
+  return path.startsWith("data:") ? path : `/${bucket}/${path}`;
+}

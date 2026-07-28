@@ -13,8 +13,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "./ThemeToggle";
+import IncomingCallBanner from "./IncomingCallBanner";
 import { useAuthStore } from "@/stores/useAuthStore";
-import { supabase } from "@/lib/supabase";
+import { clearToken, getToken } from "@/lib/api";
+import { getNotifications, markAllNotificationsRead, markNotificationRead } from "@/lib/social-api";
+import { isDemoUserId } from "@/lib/demo-accounts";
+import {
+  getDemoNotifications,
+  markAllDemoNotificationsRead,
+  markDemoNotificationRead,
+} from "@/lib/demo-sync";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -24,7 +32,7 @@ interface Notification {
   id: string;
   title: string;
   message: string;
-  type: "connection" | "message" | "meeting" | "like" | "comment";
+  type: "connection" | "message" | "meeting" | "like" | "comment" | "call";
   isRead: boolean;
   timestamp: Date;
   link?: string;
@@ -42,6 +50,31 @@ const Layout = ({ children }: LayoutProps) => {
   
   useEffect(() => {
     const loadNotifications = () => {
+      if (getToken()) {
+        getNotifications()
+          .then((items) => {
+            setNotifications(
+              items.map((notification) => ({
+                ...notification,
+                type: notification.type as Notification["type"],
+                timestamp: new Date(notification.timestamp),
+              }))
+            );
+          })
+          .catch(() => setNotifications([]));
+        return;
+      }
+
+      if (user && isDemoUserId(user.id)) {
+        setNotifications(
+          getDemoNotifications(user.id).map((notification) => ({
+            ...notification,
+            timestamp: new Date(notification.timestamp),
+          }))
+        );
+        return;
+      }
+
       const saved = localStorage.getItem("notifications");
       if (saved) {
         try {
@@ -224,19 +257,52 @@ const Layout = ({ children }: LayoutProps) => {
       loadNotifications();
     };
     window.addEventListener("notificationsUpdated", handleNotificationUpdate);
+    window.addEventListener("demoSyncUpdated", handleNotificationUpdate);
     window.addEventListener("connectionRequestsUpdated", handleConnectionUpdate);
     window.addEventListener("chatsUpdated", handleChatsUpdate);
 
     return () => {
       window.removeEventListener("notificationsUpdated", handleNotificationUpdate);
+      window.removeEventListener("demoSyncUpdated", handleNotificationUpdate);
       window.removeEventListener("connectionRequestsUpdated", handleConnectionUpdate);
       window.removeEventListener("chatsUpdated", handleChatsUpdate);
     };
-  }, []);
+  }, [user]);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   const handleNotificationClick = (notification: Notification) => {
+    if (getToken()) {
+      markNotificationRead(notification.id).then(() => {
+        window.dispatchEvent(new Event("notificationsUpdated"));
+      });
+      if (notification.link) {
+        if (notification.link.startsWith("http")) {
+          window.open(notification.link, "_blank");
+        } else {
+          navigate(notification.link);
+        }
+      }
+      return;
+    }
+
+    if (user && isDemoUserId(user.id)) {
+      markDemoNotificationRead(user.id, notification.id);
+      const refreshed = getDemoNotifications(user.id).map((item) => ({
+        ...item,
+        timestamp: new Date(item.timestamp),
+      }));
+      setNotifications(refreshed);
+      window.dispatchEvent(new Event("notificationsUpdated"));
+      if (notification.link) {
+        if (notification.link.startsWith("http")) {
+          window.open(notification.link, "_blank");
+        } else {
+          navigate(notification.link);
+        }
+      }
+      return;
+    }
     
     const updated = notifications.map((n) =>
       n.id === notification.id ? { ...n, isRead: true } : n
@@ -274,6 +340,24 @@ const Layout = ({ children }: LayoutProps) => {
   };
 
   const markAllAsRead = () => {
+    if (getToken()) {
+      markAllNotificationsRead().then(() => {
+        window.dispatchEvent(new Event("notificationsUpdated"));
+      });
+      return;
+    }
+
+    if (user && isDemoUserId(user.id)) {
+      markAllDemoNotificationsRead(user.id);
+      const refreshed = getDemoNotifications(user.id).map((item) => ({
+        ...item,
+        timestamp: new Date(item.timestamp),
+      }));
+      setNotifications(refreshed);
+      window.dispatchEvent(new Event("notificationsUpdated"));
+      return;
+    }
+
     const updated = notifications.map((n) => ({ ...n, isRead: true }));
     setNotifications(updated);
     localStorage.setItem("notifications", JSON.stringify(updated));
@@ -311,8 +395,9 @@ const Layout = ({ children }: LayoutProps) => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    clearToken();
     logout();
+    window.dispatchEvent(new Event("authChanged"));
     navigate("/auth/login");
   };
 
@@ -611,6 +696,7 @@ const Layout = ({ children }: LayoutProps) => {
       </header>
 
       <main role="main">{children}</main>
+      <IncomingCallBanner />
     </div>
   );
 };
