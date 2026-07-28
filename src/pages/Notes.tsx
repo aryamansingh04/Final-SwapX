@@ -20,6 +20,10 @@ import { format } from "date-fns";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import {
+  getBookmarkedNoteIds,
+  toggleNoteBookmark,
+} from "@/lib/note-bookmarks";
 
 interface Note {
   id: string;
@@ -50,7 +54,7 @@ const Notes = () => {
   
   const [notes, setNotes] = useState<Note[]>(() => {
     
-    const bookmarkedIds = JSON.parse(localStorage.getItem("bookmarkedNotes") || "[]");
+    const bookmarkedIds = getBookmarkedNoteIds();
     
     
     const savedNotes = localStorage.getItem("userNotes");
@@ -190,7 +194,7 @@ const Notes = () => {
   
   useEffect(() => {
     const handleBookmarkUpdate = () => {
-      const bookmarkedIds = JSON.parse(localStorage.getItem("bookmarkedNotes") || "[]");
+      const bookmarkedIds = getBookmarkedNoteIds();
       setNotes((prevNotes) =>
         prevNotes.map((note) => ({
           ...note,
@@ -222,28 +226,21 @@ const Notes = () => {
   };
 
   const handleBookmark = (noteId: string) => {
-    const bookmarkedIds = JSON.parse(localStorage.getItem("bookmarkedNotes") || "[]");
-    const isBookmarked = bookmarkedIds.includes(noteId);
-    const updatedBookmarks = isBookmarked
-      ? bookmarkedIds.filter((id: string) => id !== noteId)
-      : [...bookmarkedIds, noteId];
-    
-    localStorage.setItem("bookmarkedNotes", JSON.stringify(updatedBookmarks));
-    
+    const isBookmarked = toggleNoteBookmark(noteId);
+
     setNotes((prevNotes) =>
       prevNotes.map((note) => {
         if (note.id === noteId) {
           return {
             ...note,
-            isBookmarked: !isBookmarked,
+            isBookmarked,
           };
         }
         return note;
       })
     );
-    
-    toast.success(isBookmarked ? "Note removed from saved" : "Note saved!");
-    window.dispatchEvent(new Event("bookmarksUpdated"));
+
+    toast.success(isBookmarked ? "Note saved!" : "Note removed from saved");
   };
 
   const handleAddTag = () => {

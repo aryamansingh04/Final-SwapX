@@ -8,6 +8,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import {
+  getBookmarkedNoteIds,
+  removeNoteBookmark,
+} from "@/lib/note-bookmarks";
 
 interface Note {
   id: string;
@@ -48,13 +52,11 @@ const SavedNotes = () => {
   }, []);
 
   const loadSavedNotes = () => {
-    
+    const bookmarkedIds = getBookmarkedNoteIds();
     const savedNotesData = localStorage.getItem("userNotes");
-    const bookmarkedIds = JSON.parse(localStorage.getItem("bookmarkedNotes") || "[]");
-    
+
     let allNotes: Note[] = [];
-    
-    
+
     if (savedNotesData) {
       try {
         const parsed = JSON.parse(savedNotesData);
@@ -62,13 +64,13 @@ const SavedNotes = () => {
           ...note,
           createdAt: new Date(note.createdAt),
           updatedAt: new Date(note.updatedAt),
+          isBookmarked: bookmarkedIds.includes(note.id),
         }));
       } catch {
         allNotes = [];
       }
     }
-    
-    
+
     const mockNotes: Note[] = [
       {
         id: "1",
@@ -84,7 +86,7 @@ const SavedNotes = () => {
         },
         likes: 24,
         isLiked: false,
-        isBookmarked: false,
+        isBookmarked: bookmarkedIds.includes("1"),
       },
       {
         id: "2",
@@ -100,7 +102,7 @@ const SavedNotes = () => {
         },
         likes: 18,
         isLiked: true,
-        isBookmarked: true,
+        isBookmarked: bookmarkedIds.includes("2"),
       },
       {
         id: "3",
@@ -116,7 +118,7 @@ const SavedNotes = () => {
         },
         likes: 31,
         isLiked: false,
-        isBookmarked: false,
+        isBookmarked: bookmarkedIds.includes("3"),
       },
       {
         id: "4",
@@ -132,7 +134,7 @@ const SavedNotes = () => {
         },
         likes: 42,
         isLiked: true,
-        isBookmarked: false,
+        isBookmarked: bookmarkedIds.includes("4"),
       },
       {
         id: "5",
@@ -148,7 +150,7 @@ const SavedNotes = () => {
         },
         likes: 15,
         isLiked: false,
-        isBookmarked: true,
+        isBookmarked: bookmarkedIds.includes("5"),
       },
       {
         id: "6",
@@ -164,7 +166,7 @@ const SavedNotes = () => {
         },
         likes: 28,
         isLiked: false,
-        isBookmarked: false,
+        isBookmarked: bookmarkedIds.includes("6"),
       },
     ];
     
@@ -176,27 +178,20 @@ const SavedNotes = () => {
     });
     
     
-    const bookmarked = allNotes.filter((note) => {
-      
-      return bookmarkedIds.includes(note.id) || note.isBookmarked;
-    }).map((note) => ({
-      ...note,
-      isBookmarked: true,
-    }));
-    
+    const bookmarked = allNotes
+      .filter((note) => bookmarkedIds.includes(note.id))
+      .map((note) => ({
+        ...note,
+        isBookmarked: true,
+      }));
+
     setSavedNotes(bookmarked);
   };
 
   const handleBookmark = (noteId: string) => {
-    const bookmarkedIds = JSON.parse(localStorage.getItem("bookmarkedNotes") || "[]");
-    const updatedBookmarks = bookmarkedIds.includes(noteId)
-      ? bookmarkedIds.filter((id: string) => id !== noteId)
-      : [...bookmarkedIds, noteId];
-    
-    localStorage.setItem("bookmarkedNotes", JSON.stringify(updatedBookmarks));
-    loadSavedNotes();
+    removeNoteBookmark(noteId);
+    setSavedNotes((prevNotes) => prevNotes.filter((note) => note.id !== noteId));
     toast.success("Note removed from saved notes");
-    window.dispatchEvent(new Event("bookmarksUpdated"));
   };
 
   const handleLike = (noteId: string) => {

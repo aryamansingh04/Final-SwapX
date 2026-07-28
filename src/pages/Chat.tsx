@@ -63,6 +63,12 @@ import Layout from "@/components/Layout";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { getMessages, Message, sendMessage } from "@/lib/chat";
+import {
+  mergeChatLists,
+  parseStoredChats,
+  serializeChatsForStorage,
+  sortChatsByRecent,
+} from "@/lib/chat-storage";
 import { myConnections } from "@/lib/connections";
 import { getProfileById } from "@/lib/profile";
 import { toast } from "sonner";
@@ -91,6 +97,7 @@ interface Chat {
   isArchived?: boolean;
   isTyping?: boolean;
   connectionStatus?: "connected" | "pending-sent" | "pending-received" | "not-connected";
+  connectionId?: number;
   messages: ChatMessage[];
 }
 
@@ -522,43 +529,9 @@ const Chat = () => {
   
   useEffect(() => {
     const loadChats = async () => {
-      
-      const chatMap = new Map<string, Chat>();
-      
-      
-      mockChats.forEach(chat => {
-        chatMap.set(chat.id, chat);
-      });
-      
-      
-      const savedChats = localStorage.getItem("chats");
-      if (savedChats) {
-        try {
-          const parsed = JSON.parse(savedChats);
-          const loadedChats = parsed.map((chat: any) => ({
-            ...chat,
-            messages: (chat.messages || []).map((msg: any) => ({
-              ...msg,
-              timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-            })),
-          }));
-          
-          
-          loadedChats.forEach((chat: Chat) => {
-            if (!chatMap.has(chat.id)) {
-              chatMap.set(chat.id, chat);
-            }
-          });
-        } catch (error) {
-          console.error("Error loading chats from localStorage:", error);
-          
-        }
-      }
+      const savedChats = parseStoredChats(localStorage.getItem("chats"));
+      let allChats = mergeChatLists(mockChats, savedChats);
 
-      
-      let allChats: Chat[] = Array.from(chatMap.values());
-
-      
       const connectionRequestsSent = JSON.parse(
         localStorage.getItem("connectionRequestsSent") || "[]"
       );
@@ -569,7 +542,6 @@ const Chat = () => {
         localStorage.getItem("connections") || "[]"
       );
 
-      
       allChats = allChats.map((chat) => {
         const isConnected = connections.includes(chat.id);
         const sentRequest = connectionRequestsSent.find((r: any) => r.userId === chat.id);
@@ -593,63 +565,59 @@ const Chat = () => {
         };
       });
 
-      
       if (supabaseUser) {
         try {
           const supabaseConnections = await myConnections();
-          for (const connection of supabaseConnections) {
-            const partnerId = connection.user_id === supabaseUser.id 
-              ? connection.partner_id 
-              : connection.user_id;
+          const chatMap = new Map(allChats.map((chat) => [chat.id, chat]));
 
-            
-            if (chatMap.has(partnerId)) {
-              
-              const existingChat = allChats.find(c => c.id === partnerId);
-              if (existingChat) {
-                if (connection.status === "accepted") {
-                  existingChat.connectionStatus = "connected";
-                  
-                  try {
-                    const supabaseMessages = await getMessages(connection.id);
-                    const chatMessages: ChatMessage[] = supabaseMessages.map((msg) => ({
-                      id: msg.id.toString(),
-                      sender: msg.sender === supabaseUser.id ? "You" : existingChat.name,
-                      text: msg.content,
-                      time: msg.created_at ? format(new Date(msg.created_at), "h:mm a") : "",
-                      timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
-                      isOwn: msg.sender === supabaseUser.id,
-                      status: msg.sender === supabaseUser.id ? "sent" : undefined,
-                    }));
-                    
-                    if (chatMessages.length > 0) {
-                      const existingMessageIds = new Set(existingChat.messages.map(m => m.id));
-                      const newMessages = chatMessages.filter(m => !existingMessageIds.has(m.id));
-                      existingChat.messages = [...existingChat.messages, ...newMessages].sort((a, b) => 
-                        a.timestamp.getTime() - b.timestamp.getTime()
-                      );
-                      
-                      if (existingChat.messages.length > 0) {
-                        const lastMsg = existingChat.messages[existingChat.messages.length - 1];
-                        existingChat.lastMessage = lastMsg.text;
-                        existingChat.lastMessageTime = lastMsg.time;
-                      }
-                    }
-                    
-                    existingChat.connectionId = connection.id;
-                  } catch (error) {
-                    console.error(`Error loading messages for connection ${connection.id}:`, error);
+          for (const connection of supabaseConnections) {
+            const partnerId =
+              connection.user_id === supabaseUser.id
+                ? connection.partner_id
+                : connection.user_id;
+
+            const existingChat = chatMap.get(partnerId);
+
+            if (existingChat) {
+              if (connection.status === "accepted") {
+                existingChat.connectionStatus = "connected";
+                existingChat.connectionId = connection.id;
+
+                try {
+                  const supabaseMessages = await getMessages(connection.id);
+                  const chatMessages: ChatMessage[] = supabaseMessages.map((msg) => ({
+                    id: msg.id.toString(),
+                    sender: msg.sender === supabaseUser.id ? "You" : existingChat.name,
+                    text: msg.content,
+                    time: msg.created_at ? format(new Date(msg.created_at), "h:mm a") : "",
+                    timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
+                    isOwn: msg.sender === supabaseUser.id,
+                    status: msg.sender === supabaseUser.id ? "sent" : undefined,
+                  }));
+
+                  if (chatMessages.length > 0) {
+                    const merged = mergeChatLists([existingChat], [
+                      {
+                        ...existingChat,
+                        messages: chatMessages,
+                        lastMessage: chatMessages[chatMessages.length - 1].text,
+                        lastMessageTime: chatMessages[chatMessages.length - 1].time,
+                      },
+                    ]);
+                    chatMap.set(partnerId, merged[0]);
                   }
-                } else if (connection.status === "pending") {
-                  existingChat.connectionStatus = connection.user_id === supabaseUser.id 
-                    ? "pending-sent" 
-                    : "pending-received";
+                } catch (error) {
+                  console.error(`Error loading messages for connection ${connection.id}:`, error);
                 }
+              } else if (connection.status === "pending") {
+                existingChat.connectionStatus =
+                  connection.user_id === supabaseUser.id
+                    ? "pending-sent"
+                    : "pending-received";
               }
               continue;
             }
 
-            
             try {
               const partnerProfile = await getProfileById(partnerId);
               if (!partnerProfile) continue;
@@ -657,13 +625,16 @@ const Chat = () => {
               let allMessages: Message[] = [];
               try {
                 allMessages = await getMessages(connection.id);
-              } catch (error) {
-                
+              } catch {
+                // Fall back to local-only chat data when Supabase is unavailable.
               }
 
               const chatMessages: ChatMessage[] = allMessages.map((msg) => ({
                 id: msg.id.toString(),
-                sender: msg.sender === supabaseUser.id ? "You" : partnerProfile.full_name || partnerProfile.username || "User",
+                sender:
+                  msg.sender === supabaseUser.id
+                    ? "You"
+                    : partnerProfile.full_name || partnerProfile.username || "User",
                 text: msg.content,
                 time: msg.created_at ? format(new Date(msg.created_at), "h:mm a") : "",
                 timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
@@ -671,11 +642,16 @@ const Chat = () => {
                 status: msg.sender === supabaseUser.id ? "sent" : undefined,
               }));
 
-              let connectionStatus: "connected" | "pending-sent" | "pending-received" | "not-connected" = "not-connected";
+              let connectionStatus:
+                | "connected"
+                | "pending-sent"
+                | "pending-received"
+                | "not-connected" = "not-connected";
               if (connection.status === "accepted") {
                 connectionStatus = "connected";
               } else if (connection.status === "pending") {
-                connectionStatus = connection.user_id === supabaseUser.id ? "pending-sent" : "pending-received";
+                connectionStatus =
+                  connection.user_id === supabaseUser.id ? "pending-sent" : "pending-received";
               }
 
               const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
@@ -695,10 +671,11 @@ const Chat = () => {
                 id: partnerId,
                 connectionId: connection.id,
                 name: partnerProfile.full_name || partnerProfile.username || "User",
-                avatar: partnerProfile.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${partnerProfile.username || "User"}`,
+                avatar:
+                  partnerProfile.avatar_url ||
+                  `https://api.dicebear.com/7.x/avataaars/svg?seed=${partnerProfile.username || "User"}`,
                 lastMessage: lastMessage ? lastMessage.text : "Start a conversation",
-                lastMessageTime: lastMessageTime,
-                lastSeen: undefined,
+                lastMessageTime,
                 unreadCount: 0,
                 isPinned: false,
                 isMuted: false,
@@ -708,54 +685,32 @@ const Chat = () => {
                 messages: chatMessages,
               };
 
-              allChats.push(supabaseChat);
+              chatMap.set(partnerId, supabaseChat);
             } catch (error) {
               console.error(`Error loading profile for ${partnerId}:`, error);
             }
           }
+
+          allChats = Array.from(chatMap.values());
         } catch (error) {
           console.error("Error loading Supabase connections:", error);
         }
       }
 
-      
-      const allChatsWithStatus = allChats.map((chat) => ({
-        ...chat,
-        connectionStatus: chat.connectionStatus || "not-connected",
-      }));
-
-      
-      allChatsWithStatus.sort((a, b) => {
-        if (a.isPinned && !b.isPinned) return -1;
-        if (!a.isPinned && b.isPinned) return 1;
-        
-        const timeA = a.messages.length > 0 
-          ? a.messages[a.messages.length - 1].timestamp.getTime()
-          : 0;
-        const timeB = b.messages.length > 0
-          ? b.messages[b.messages.length - 1].timestamp.getTime()
-          : 0;
-        return timeB - timeA;
-      });
-
-      setChats(allChatsWithStatus);
-      saveChatsToStorage(allChatsWithStatus);
+      setChats(sortChatsByRecent(allChats));
     };
 
     loadChats();
 
-    
-    const handleChatsUpdate = () => {
+    const handleConnectionUpdate = () => {
       loadChats();
     };
-    window.addEventListener("chatsUpdated", handleChatsUpdate);
-    window.addEventListener("connectionRequestsUpdated", handleChatsUpdate);
+    window.addEventListener("connectionRequestsUpdated", handleConnectionUpdate);
 
     return () => {
-      window.removeEventListener("chatsUpdated", handleChatsUpdate);
-      window.removeEventListener("connectionRequestsUpdated", handleChatsUpdate);
+      window.removeEventListener("connectionRequestsUpdated", handleConnectionUpdate);
     };
-  }, []);
+  }, [supabaseUser]);
   
   
   const [callHistory] = useState<CallHistory[]>([
@@ -859,26 +814,20 @@ const Chat = () => {
   useEffect(() => {
     if (connectionId) {
       setSelectedChatId(connectionId);
-      
-      setChats(prevChats => {
-        const updatedChats = prevChats.map(chat =>
-          chat.id === connectionId
-            ? { ...chat, unreadCount: 0 }
-            : chat
+
+      setChats((prevChats) => {
+        const updatedChats = prevChats.map((chat) =>
+          chat.id === connectionId ? { ...chat, unreadCount: 0 } : chat
         );
-        localStorage.setItem("chats", JSON.stringify(updatedChats));
-        window.dispatchEvent(new Event("chatsUpdated"));
-        
-        
+        saveChatsToStorage(updatedChats);
+
         const notifications = JSON.parse(localStorage.getItem("notifications") || "[]");
         const updatedNotifications = notifications.map((n: any) =>
-          n.type === "message" && n.chatId === connectionId
-            ? { ...n, isRead: true }
-            : n
+          n.type === "message" && n.chatId === connectionId ? { ...n, isRead: true } : n
         );
         localStorage.setItem("notifications", JSON.stringify(updatedNotifications));
         window.dispatchEvent(new Event("notificationsUpdated"));
-        
+
         return updatedChats;
       });
     } else {
@@ -971,22 +920,26 @@ const Chat = () => {
   
   const saveChatsToStorage = (chatsToSave: Chat[]) => {
     try {
-      const serialized = JSON.stringify(chatsToSave.map(chat => ({
-        ...chat,
-        messages: (chat.messages || []).map(msg => ({
-          ...msg,
-          timestamp: msg.timestamp instanceof Date 
-            ? msg.timestamp.toISOString() 
-            : (typeof msg.timestamp === 'string' ? msg.timestamp : new Date().toISOString()),
-        })),
-      })));
-      localStorage.setItem("chats", serialized);
+      localStorage.setItem("chats", serializeChatsForStorage(chatsToSave));
       window.dispatchEvent(new Event("chatsUpdated"));
       return true;
     } catch (error) {
       console.error("Error saving chats to localStorage:", error);
       return false;
     }
+  };
+
+  const updateChatMessages = (
+    chatId: string,
+    updater: (chat: Chat) => Chat
+  ) => {
+    setChats((prevChats) => {
+      const updatedChats = sortChatsByRecent(
+        prevChats.map((chat) => (chat.id === chatId ? updater(chat) : chat))
+      );
+      saveChatsToStorage(updatedChats);
+      return updatedChats;
+    });
   };
 
   const handleSend = async () => {
@@ -999,9 +952,8 @@ const Chat = () => {
       toast.error("Please select a chat");
       return;
     }
-    
-    
-    const currentChat = chats.find(chat => chat.id === selectedChatId);
+
+    const currentChat = chats.find((chat) => chat.id === selectedChatId);
     if (!currentChat) {
       toast.error("Chat not found");
       return;
@@ -1014,48 +966,48 @@ const Chat = () => {
 
     const messageText = message.trim();
     const now = new Date();
-    
-    
     setMessage("");
-    
-    
-    if (currentChat.connectionId && supabaseUser) {
-      try {
-        
-        const optimisticMessage: ChatMessage = {
-          id: `temp-${Date.now()}`,
-          sender: "You",
-          text: messageText,
-          time: format(now, "h:mm a"),
-          timestamp: now,
-          isOwn: true,
-          status: "sending",
-        };
 
-        
-        setChats(prevChats => {
-          const optimisticChats = prevChats.map(chat => {
-            if (chat.id === selectedChatId) {
-              return {
-                ...chat,
-                messages: [...chat.messages, optimisticMessage],
-                lastMessage: messageText,
-                lastMessageTime: optimisticMessage.time,
-              };
-            }
-            return chat;
-          });
-          saveChatsToStorage(optimisticChats);
-          return optimisticChats;
-        });
-        
-        
-        const sentMessage = await sendMessage(currentChat.connectionId, messageText);
-        
-        
+    const appendLocalMessage = (
+      chatMessage: ChatMessage,
+      options?: { replaceTemp?: boolean }
+    ) => {
+      updateChatMessages(selectedChatId, (chat) => {
+        const messages = options?.replaceTemp
+          ? chat.messages.filter((msg) => !msg.id.startsWith("temp-"))
+          : chat.messages;
+
+        return {
+          ...chat,
+          messages: [...messages, chatMessage],
+          lastMessage: chatMessage.text,
+          lastMessageTime: chatMessage.time,
+        };
+      });
+    };
+
+    if (currentChat.connectionId && supabaseUser) {
+      const optimisticMessage: ChatMessage = {
+        id: `temp-${Date.now()}`,
+        sender: "You",
+        text: messageText,
+        time: format(now, "h:mm a"),
+        timestamp: now,
+        isOwn: true,
+        status: "sending",
+      };
+
+      updateChatMessages(selectedChatId, (chat) => ({
+        ...chat,
+        messages: [...chat.messages, optimisticMessage],
+        lastMessage: messageText,
+        lastMessageTime: optimisticMessage.time,
+      }));
+
+      try {
+        await sendMessage(currentChat.connectionId, messageText);
         const allSupabaseMessages = await getMessages(currentChat.connectionId);
-        
-        
+
         const allChatMessages: ChatMessage[] = allSupabaseMessages.map((msg) => ({
           id: msg.id.toString(),
           sender: msg.sender === supabaseUser.id ? "You" : currentChat.name,
@@ -1066,55 +1018,37 @@ const Chat = () => {
           status: msg.sender === supabaseUser.id ? "sent" : undefined,
         }));
 
-        
-        setChats(prevChats => {
-          const finalChats = prevChats.map(chat => {
-            if (chat.id === selectedChatId) {
-              return {
-                ...chat,
-                messages: allChatMessages, 
-                lastMessage: allChatMessages.length > 0 
-                  ? allChatMessages[allChatMessages.length - 1].text 
-                  : messageText,
-                lastMessageTime: allChatMessages.length > 0 
-                  ? allChatMessages[allChatMessages.length - 1].time 
-                  : format(now, "h:mm a"),
-              };
-            }
-            return chat;
-          });
-          saveChatsToStorage(finalChats);
-          return finalChats;
-        });
-        
-        toast.success("Message sent successfully");
+        updateChatMessages(selectedChatId, (chat) => ({
+          ...chat,
+          messages: allChatMessages,
+          lastMessage:
+            allChatMessages.length > 0
+              ? allChatMessages[allChatMessages.length - 1].text
+              : messageText,
+          lastMessageTime:
+            allChatMessages.length > 0
+              ? allChatMessages[allChatMessages.length - 1].time
+              : format(now, "h:mm a"),
+        }));
       } catch (error) {
-        console.error("Error sending message:", error);
-        toast.error(error instanceof Error ? error.message : "Failed to send message");
-        
-        
-        setMessage(messageText);
-        
-        
-        setChats(prevChats => {
-          const errorChats = prevChats.map(chat => {
-            if (chat.id === selectedChatId) {
-              return {
-                ...chat,
-                messages: chat.messages.filter(msg => !msg.id.startsWith("temp-")),
-              };
-            }
-            return chat;
-          });
-          saveChatsToStorage(errorChats);
-          return errorChats;
-        });
+        console.error("Error sending message via Supabase, saving locally:", error);
+        appendLocalMessage(
+          {
+            id: Date.now().toString(),
+            sender: "You",
+            text: messageText,
+            time: format(now, "h:mm a"),
+            timestamp: now,
+            isOwn: true,
+            status: "sent",
+          },
+          { replaceTemp: true }
+        );
       }
       return;
     }
-    
-    
-    const newMessage: ChatMessage = {
+
+    appendLocalMessage({
       id: Date.now().toString(),
       sender: "You",
       text: messageText,
@@ -1122,69 +1056,9 @@ const Chat = () => {
       timestamp: now,
       isOwn: true,
       status: "sent",
-    };
-
-    setChats(prevChats => {
-      const updatedChats = prevChats.map(chat => {
-        if (chat.id === selectedChatId) {
-          return {
-            ...chat,
-            messages: [...chat.messages, newMessage],
-            lastMessage: newMessage.text,
-            lastMessageTime: newMessage.time,
-          };
-        }
-        return chat;
-      });
-      saveChatsToStorage(updatedChats);
-      return updatedChats;
     });
-    
-    toast.success("Message sent successfully");
-
-    
-    setTimeout(() => {
-      setChats(prevChats => {
-        const updated = prevChats.map(chat => {
-          if (chat.id === selectedChatId) {
-            return {
-              ...chat,
-              messages: chat.messages.map(msg =>
-                msg.id === newMessage.id
-                  ? { ...msg, status: "delivered" as const }
-                  : msg
-              ),
-            };
-          }
-          return chat;
-        });
-        saveChatsToStorage(updated);
-        return updated;
-      });
-    }, 500);
-
-    setTimeout(() => {
-      setChats(prevChats => {
-        const updated = prevChats.map(chat => {
-          if (chat.id === selectedChatId) {
-            return {
-              ...chat,
-              messages: chat.messages.map(msg =>
-                msg.id === newMessage.id
-                  ? { ...msg, status: "read" as const }
-                  : msg
-              ),
-            };
-          }
-          return chat;
-        });
-        saveChatsToStorage(updated);
-        return updated;
-      });
-    }, 1000);
   };
 
-  
   const handleCopyMessage = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("Message copied");

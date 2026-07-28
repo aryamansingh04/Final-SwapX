@@ -36,6 +36,7 @@ import NewsDetail from "./pages/NewsDetail";
 import FAQ from "./pages/FAQ";
 import AboutUs from "./pages/AboutUs";
 import Explore from "./pages/Explore";
+import CommunityLeader from "./pages/CommunityLeader";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -255,6 +256,14 @@ const App = () => (
               element={
                 <AuthGate>
                   <AboutUs />
+                </AuthGate>
+              }
+            />
+            <Route
+              path="/community-leader"
+              element={
+                <AuthGate>
+                  <CommunityLeader />
                 </AuthGate>
               }
             />

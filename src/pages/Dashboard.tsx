@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Star, Users, Award, TrendingUp, Calendar, Clock, UserPlus, UserCheck, UserX, Video, MapPin, Check, X } from "lucide-react";
+import { Star, Users, Award, TrendingUp, Calendar, Clock, UserPlus, UserCheck, UserX, Video, MapPin, Check, X, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -9,9 +9,11 @@ import Layout from "@/components/Layout";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { useCommunityBadges } from "@/hooks/useCommunityBadges";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { earnedBadges, earnedCount, totalBadges, leaderTitle } = useCommunityBadges();
   
   const stats = [
     { label: "Total Sessions", value: "24", icon: Users, color: "text-primary" },
@@ -298,27 +300,42 @@ const Dashboard = () => {
 
         {}
         <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Award className="h-5 w-5 text-primary" />
-              Badges Earned
-            </CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Award className="h-5 w-5 text-primary" />
+                Badges Earned
+              </CardTitle>
+              <CardDescription>
+                {earnedCount} of {totalBadges} earned · {leaderTitle}
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => navigate("/community-leader")}>
+              View All
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
-              {[
-                { name: "First Session", emoji: "🎉" },
-                { name: "10 Sessions", emoji: "🔥" },
-                { name: "Great Teacher", emoji: "⭐" },
-                { name: "Fast Learner", emoji: "🚀" },
-                { name: "Community Hero", emoji: "💪" },
-              ].map((badge) => (
-                <div key={badge.name} className="flex flex-col items-center p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
-                  <div className="text-4xl mb-2">{badge.emoji}</div>
-                  <p className="text-xs text-center font-medium">{badge.name}</p>
-                </div>
-              ))}
-            </div>
+            {earnedBadges.length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground">
+                <p className="mb-3">No badges yet. Start connecting and learning to earn your first badge.</p>
+                <Button onClick={() => navigate("/community-leader")}>Explore Badges</Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
+                {earnedBadges.slice(0, 5).map((badge) => (
+                  <button
+                    key={badge.id}
+                    type="button"
+                    onClick={() => navigate("/community-leader")}
+                    className="flex flex-col items-center p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+                  >
+                    <div className="text-4xl mb-2">{badge.emoji}</div>
+                    <p className="text-xs text-center font-medium">{badge.name}</p>
+                  </button>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

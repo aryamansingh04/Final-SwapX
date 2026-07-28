@@ -6,8 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Calendar, Tag, Heart, Bookmark, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import {
+  isNoteBookmarked,
+  toggleNoteBookmark,
+} from "@/lib/note-bookmarks";
 
 
 const mockNotes = [
@@ -142,12 +146,22 @@ const NoteDetail = () => {
   const note = allNotes.find((n) => n.id === id);
   
   
-  const bookmarkedIds = JSON.parse(localStorage.getItem("bookmarkedNotes") || "[]");
   const [isLiked, setIsLiked] = useState(note?.isLiked || false);
   const [isBookmarked, setIsBookmarked] = useState(
-    note?.id ? bookmarkedIds.includes(note.id) : false
+    note?.id ? isNoteBookmarked(note.id) : false
   );
   const [likes, setLikes] = useState(note?.likes || 0);
+
+  useEffect(() => {
+    const syncBookmarkState = () => {
+      if (note?.id) {
+        setIsBookmarked(isNoteBookmarked(note.id));
+      }
+    };
+
+    window.addEventListener("bookmarksUpdated", syncBookmarkState);
+    return () => window.removeEventListener("bookmarksUpdated", syncBookmarkState);
+  }, [note?.id]);
 
   if (!note) {
     return (
@@ -174,16 +188,11 @@ const NoteDetail = () => {
   };
 
   const handleBookmark = () => {
-    const newIsBookmarked = !isBookmarked;
+    if (!note?.id) return;
+
+    const newIsBookmarked = toggleNoteBookmark(note.id);
     setIsBookmarked(newIsBookmarked);
-    
-    const updatedBookmarks = newIsBookmarked
-      ? [...bookmarkedIds, note.id]
-      : bookmarkedIds.filter((id: string) => id !== note.id);
-    
-    localStorage.setItem("bookmarkedNotes", JSON.stringify(updatedBookmarks));
     toast.success(newIsBookmarked ? "Note saved!" : "Note removed from saved");
-    window.dispatchEvent(new Event("bookmarksUpdated"));
   };
 
   return (

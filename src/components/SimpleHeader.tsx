@@ -1,53 +1,29 @@
-import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LogOut, LogIn } from "lucide-react";
 import { toast } from "sonner";
+import { useAppAuth } from "@/hooks/useAppAuth";
+import { useAuthStore } from "@/stores/useAuthStore";
 
 const SimpleHeader = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
-      setLoading(false);
-    });
-
-    
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+  const { user, isLoading, isAuthenticated } = useAppAuth();
+  const { logout } = useAuthStore();
 
   const handleSignOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error("Error signing out:", error);
-        toast.error("Failed to sign out. Please try again.");
-      } else {
-        navigate("/");
-      }
+      await supabase.auth.signOut();
+      logout();
+      navigate("/auth/login");
     } catch (error) {
       console.error("Error signing out:", error);
       toast.error("Failed to sign out. Please try again.");
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -65,16 +41,16 @@ const SimpleHeader = () => {
         </Link>
 
         <div className="flex items-center gap-4">
-          {user ? (
+          {isAuthenticated && user ? (
             <>
               <div className="flex items-center gap-3">
                 <Avatar className="h-8 w-8">
                   <AvatarImage
-                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`}
-                    alt={user.email || "User"}
+                    src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`}
+                    alt={user.name || "User"}
                   />
                   <AvatarFallback>
-                    {user.email?.[0]?.toUpperCase() || "U"}
+                    {user.name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || "U"}
                   </AvatarFallback>
                 </Avatar>
                 <span className="text-sm font-medium hidden sm:inline-block">
@@ -101,4 +77,3 @@ const SimpleHeader = () => {
 };
 
 export default SimpleHeader;
-

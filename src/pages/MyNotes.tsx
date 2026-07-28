@@ -20,6 +20,10 @@ import { format } from "date-fns";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import {
+  getBookmarkedNoteIds,
+  toggleNoteBookmark,
+} from "@/lib/note-bookmarks";
 
 interface Note {
   id: string;
@@ -58,6 +62,7 @@ const MyNotes = () => {
           ...note,
           createdAt: new Date(note.createdAt),
           updatedAt: new Date(note.updatedAt),
+          isBookmarked: getBookmarkedNoteIds().includes(note.id),
         }));
       } catch {
         return [];
@@ -73,6 +78,21 @@ const MyNotes = () => {
   useEffect(() => {
     localStorage.setItem("userNotes", JSON.stringify(notes));
   }, [notes]);
+
+  useEffect(() => {
+    const handleBookmarkUpdate = () => {
+      const bookmarkedIds = getBookmarkedNoteIds();
+      setNotes((prevNotes) =>
+        prevNotes.map((note) => ({
+          ...note,
+          isBookmarked: bookmarkedIds.includes(note.id),
+        }))
+      );
+    };
+
+    window.addEventListener("bookmarksUpdated", handleBookmarkUpdate);
+    return () => window.removeEventListener("bookmarksUpdated", handleBookmarkUpdate);
+  }, []);
 
   const handleAddTag = () => {
     if (newNoteTag.trim() && !newNoteTags.includes(newNoteTag.trim())) {
@@ -141,17 +161,21 @@ const MyNotes = () => {
   };
 
   const handleBookmark = (noteId: string) => {
+    const isBookmarked = toggleNoteBookmark(noteId);
+
     setNotes((prevNotes) =>
       prevNotes.map((note) => {
         if (note.id === noteId) {
           return {
             ...note,
-            isBookmarked: !note.isBookmarked,
+            isBookmarked,
           };
         }
         return note;
       })
     );
+
+    toast.success(isBookmarked ? "Note saved!" : "Note removed from saved");
   };
 
   return (

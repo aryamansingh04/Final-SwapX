@@ -97,6 +97,9 @@ export const useProfileStore = create<ProfileState>()(
     {
       name: 'profile-storage',
       storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        profiles: state.profiles,
+      }),
     }
   )
 );

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
 import { Loader2 } from "lucide-react";
+import { useAppAuth } from "@/hooks/useAppAuth";
 
 interface AuthGateProps {
   children: React.ReactNode;
@@ -9,68 +9,15 @@ interface AuthGateProps {
 
 const AuthGate = ({ children }: AuthGateProps) => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
+  const { isAuthenticated, isLoading } = useAppAuth();
 
   useEffect(() => {
-    let mounted = true;
+    if (!isLoading && !isAuthenticated) {
+      navigate("/auth/login", { replace: true });
+    }
+  }, [isLoading, isAuthenticated, navigate]);
 
-    const checkAuth = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (!mounted) return;
-        
-        if (user) {
-          setAuthenticated(true);
-          setLoading(false);
-        } else {
-          setAuthenticated(false);
-          setLoading(false);
-          
-          if (window.location.pathname !== "/") {
-            navigate("/");
-          }
-        }
-      } catch (error) {
-        console.error("Error checking authentication:", error);
-        if (!mounted) return;
-        setAuthenticated(false);
-        setLoading(false);
-        if (window.location.pathname !== "/") {
-          navigate("/");
-        }
-      }
-    };
-
-    checkAuth();
-
-    
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      
-      if (session?.user) {
-        setAuthenticated(true);
-        setLoading(false);
-      } else {
-        setAuthenticated(false);
-        setLoading(false);
-        
-        if (window.location.pathname !== "/") {
-          navigate("/");
-        }
-      }
-    });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, [navigate]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -78,12 +25,9 @@ const AuthGate = ({ children }: AuthGateProps) => {
     );
   }
 
-  if (!authenticated) {
-    return null;
-  }
+  if (!isAuthenticated) return null;
 
   return <>{children}</>;
 };
 
 export default AuthGate;
-

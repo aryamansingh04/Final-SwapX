@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Home, MessageSquare, BarChart3, Upload, User, Menu, X, Users, Video, FileText, Newspaper, Settings, MessageCircle, Bookmark, Bell, HelpCircle, Info } from "lucide-react";
+import { Home, MessageSquare, BarChart3, Upload, User, Menu, X, Users, Video, FileText, Newspaper, Settings, MessageCircle, Bookmark, Bell, HelpCircle, Info, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -14,6 +14,7 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { supabase } from "@/lib/supabase";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -309,7 +310,8 @@ const Layout = ({ children }: LayoutProps) => {
     setMobileMenuOpen(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     logout();
     navigate("/auth/login");
   };
@@ -461,6 +463,10 @@ const Layout = ({ children }: LayoutProps) => {
                   <Bookmark className="h-4 w-4 mr-2" aria-hidden="true" />
                   Saved Notes
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleNavigate("/community-leader")} role="menuitem">
+                  <Trophy className="h-4 w-4 mr-2" aria-hidden="true" />
+                  Leaderboard
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleNavigate("/connection-settings")} role="menuitem">
                   <Settings className="h-4 w-4 mr-2" aria-hidden="true" />
                   Connection Settings
@@ -556,6 +562,14 @@ const Layout = ({ children }: LayoutProps) => {
                     >
                       <Bookmark className="h-4 w-4 mr-2" aria-hidden="true" />
                       Saved Notes
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start"
+                      onClick={() => handleNavigate("/community-leader")}
+                    >
+                      <Trophy className="h-4 w-4 mr-2" aria-hidden="true" />
+                      Leaderboard
                     </Button>
                     <Button
                       variant="ghost"

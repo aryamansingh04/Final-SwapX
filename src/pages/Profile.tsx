@@ -44,64 +44,40 @@ const Profile = () => {
   
   useEffect(() => {
     const loadProfileAndProofs = async () => {
-      
       if (isOwnProfile && supabaseUser) {
         try {
           setLoading(true);
           const profile = await getMyProfile();
           if (profile) {
-            console.log("Loaded profile from Supabase:", {
-              id: profile.id,
-              skills: profile.skills,
-              skills_to_learn: profile.skills_to_learn,
-            });
             setSupabaseProfile(profile);
           } else {
             setSupabaseProfile(null);
           }
-          
-          
+
           if (supabaseUser.id) {
             try {
-              console.log("Loading proofs for own profile from Supabase, user ID:", supabaseUser.id);
-              
               const userProofs = await getMyProofs();
-              console.log("Loaded proofs from Supabase:", userProofs);
-              
-              if (userProofs && userProofs.length > 0) {
-                console.log(`Found ${userProofs.length} proofs in Supabase`);
-                setProofs(userProofs);
-              } else {
-                console.log("No proofs found in Supabase, setting empty array");
-                setProofs([]);
-                
-              }
+              setProofs(userProofs ?? []);
             } catch (proofError) {
               console.error("Error loading proofs from Supabase:", proofError);
-              
               try {
                 const fallbackProofs = await getUserProofs(supabaseUser.id);
-                console.log("Fallback: Loaded proofs via getUserProofs:", fallbackProofs);
-                if (fallbackProofs && fallbackProofs.length > 0) {
-                  setProofs(fallbackProofs);
-                } else {
-                  setProofs([]);
-                }
-              } catch (fallbackError) {
-                console.error("Fallback also failed:", fallbackError);
+                setProofs(fallbackProofs ?? []);
+              } catch {
                 setProofs([]);
               }
             }
           }
         } catch (error) {
           console.error("Error loading profile:", error);
-          
           if (error instanceof Error && !error.message.includes("not authenticated")) {
             setSupabaseProfile(null);
           }
         } finally {
           setLoading(false);
         }
+      } else if (isOwnProfile && user && !supabaseUser) {
+        setLoading(false);
       } else if (profileId && id) {
         
         try {
@@ -141,17 +117,12 @@ const Profile = () => {
         } finally {
           setLoading(false);
         }
-      } else if (!id && !supabaseUser && !user) {
-        
-        setLoading(true);
       } else {
-        
         if (id) {
-  const foundProfile = mockUsers.find(p => p.id === id);
+          const foundProfile = mockUsers.find((p) => p.id === id);
           if (foundProfile?.proofs && foundProfile.proofs.length > 0) {
             setProofs(foundProfile.proofs);
           } else {
-            
             try {
               const userProofs = await getUserProofs(id);
               if (userProofs.length > 0) {
@@ -166,9 +137,7 @@ const Profile = () => {
       }
     };
     loadProfileAndProofs();
-    
-    
-  }, [id, supabaseUser, user, refreshKey, isOwnProfile, currentUserId]);
+  }, [id, supabaseUser, user, refreshKey, isOwnProfile, currentUserId, profileId]);
   
   
   useEffect(() => {
